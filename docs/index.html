@@ -10,6 +10,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📻</text></svg>">
 <title>BoomerBlaster</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&display=swap">
 <script>document.documentElement.classList.add("js");</script>
 <style>
   /* Layout: Apple product page. Black and off-white full-bleed bands, a 980px column, 28px radii, system type. */
@@ -27,7 +28,7 @@
     --blue-hover: #0077ed;
     --link-dark: #2997ff;
     --link-light: #0066cc;
-    --g1: #f6b06e; --g2: #f26aa0; --g3: #8d6cff; --g4: #4fb7ff;
+    --sleeve: "Michroma", "Eurostile", "Bank Gothic", "Arial Black", sans-serif; /* 1999 sleeve type; used twice */
     --radius: 28px;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -74,7 +75,8 @@
   .copy strong { font-weight: 600; }
   .dark-s .copy strong { color: #f5f5f7; }
   .light-s .copy strong { color: var(--dark); }
-  .gradient { background: linear-gradient(90deg, var(--g1) 0%, var(--g2) 40%, var(--g3) 75%, var(--g4) 100%); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
+  .sleeve { font-family: var(--sleeve); font-weight: 400; text-transform: uppercase; letter-spacing: .08em; text-wrap: balance; }
+  .claim { font-size: clamp(18px, 3vw, 36px); line-height: 1.3; margin-top: 22px; color: #f5f5f7; }
   .more { color: var(--link-dark); font-size: 21px; line-height: 1.19; display: inline-flex; align-items: center; gap: .2em; }
   .more::after { content: "\203A"; font-size: 1.15em; line-height: 1; }
   .more:hover { text-decoration: underline; }
@@ -115,7 +117,7 @@
   .story .copy + .copy { margin-top: 26px; }
   .story .copy em { font-style: normal; letter-spacing: .3em; margin-right: -.3em; color: #f5f5f7; }
   .story .copy strong { color: #f5f5f7; font-weight: 700; font-size: 1.3em; }
-  .story .pull { font-weight: 600; letter-spacing: -.01em; font-size: clamp(24px, 3.2vw, 36px); margin-top: 44px; }
+  .story .pull { font-size: clamp(15px, 2.1vw, 24px); line-height: 1.5; margin-top: 44px; color: #f5f5f7; }
 
   /* then / now */
   .thennow { display: grid; gap: 20px; margin-top: 56px; overflow: clip; border-radius: var(--radius); }
@@ -137,7 +139,7 @@
   .steps { display: grid; gap: 20px; margin-top: 56px; text-align: left; }
   @media (min-width: 735px) { .steps { grid-template-columns: repeat(3, 1fr); } }
   .step { border-radius: var(--radius); background: var(--dark); padding: 36px 32px; min-width: 0; }
-  .step .n { font-size: 48px; font-weight: 700; letter-spacing: -.03em; line-height: 1; margin-bottom: 18px; background: linear-gradient(90deg, var(--g1), var(--g2)); -webkit-background-clip: text; background-clip: text; color: transparent; display: inline-block; }
+  .step .n { font-size: 48px; font-weight: 700; letter-spacing: -.03em; line-height: 1; margin-bottom: 18px; color: var(--grey); }
   .step h3 { font-size: 24px; letter-spacing: .007em; margin-bottom: 10px; }
   .step p { color: var(--grey); font-size: 17px; }
   .stats { display: grid; gap: 40px 20px; margin-top: 72px; text-align: center; }
@@ -284,7 +286,7 @@
 <section class="hero dark-s" id="top">
   <div class="wrap">
     <h1 class="hero-name rv">BoomerBlaster</h1>
-    <h2 class="headline xl rv" style="--d:.12s"><span class="gradient">Turn it up. Nobody will know.</span></h2>
+    <h2 class="claim sleeve rv" style="--d:.12s">Turn it up.<br>Nobody will know.</h2>
     <p class="copy rv" style="--d:.22s; margin: 22px auto 0; text-align:center">Cast from your phone. The whole floor hears it in their own headphones, on the same beat, from a web page on your Mac. Crank your downtempo to eleven. Spare the interns.</p>
     <p class="availability rv" style="--d:.3s">Available now. On brew.<sup>1</sup></p>
     <div class="links rv" style="--d:.36s">
@@ -309,7 +311,7 @@
     <p class="copy" data-story>Everyone was noisy. Everyone listened to the same thing, because everyone had to. Noise cancelling meant someone going <em>schhh</em>. And every week somebody nudged the volume knob one notch, and nobody noticed, and the frog boiled.</p>
     <p class="copy" data-story><strong>Well. No?</strong></p>
     <p class="copy" data-story>Now you can at least listen together again. And embarrass yourself with your low-BPM downtempo<sup>2</sup> in front of the whole floor, at a volume that bothers no one.</p>
-    <p class="copy pull" data-story><span class="gradient">Same room. Same record. Separate ears.</span></p>
+    <p class="copy pull sleeve" data-story>Same room. Same record. Separate ears.</p>
   </div>
 </section>
 
