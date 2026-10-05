@@ -1,15 +1,15 @@
-# 🎧 Floorfill
+# 📻 BoomerBlaster
 
 ![Office workers dancing at standing desks in headphones while a colleague works undisturbed](docs/img/hero.jpg)
 
-> Floorfill is a silent disco for the open-plan office. You play music from
+> BoomerBlaster is a silent disco for the open-plan office. You play music from
 > your phone or your Mac; everyone who wants to listen opens a web page and
 > hears it in their own headphones, in time with everyone else. The colleague
 > who wants quiet hears nothing at all.
 
 ## Check whether you need it
 
-You need Floorfill if all of the following are true:
+You need BoomerBlaster if all of the following are true:
 
 - You share an open-plan office and a speaker would annoy someone.
 - Everyone has headphones and a laptop or a phone with a browser.
@@ -18,7 +18,7 @@ You need Floorfill if all of the following are true:
 - You want the listeners in sync with each other, and you want the page to
   show what is playing, with cover art.
 
-Floorfill runs on one Mac, the DJ's. It needs nothing installed anywhere
+BoomerBlaster runs on one Mac, the DJ's. It needs nothing installed anywhere
 else. The Mac must be on the same network as the listeners and, if it is a
 laptop, it should stay open and awake for the length of the set.
 
@@ -30,29 +30,29 @@ laptop, it should stay open and awake for the length of the set.
   isolates clients; if colleagues cannot open the page, that is the first
   thing to ask about. A cable into the DJ's Mac helps with twenty listeners.
 - For Spotify Connect, a Spotify Premium account. librespot, the receiver
-  Floorfill uses, does not work with free accounts.
+  BoomerBlaster uses, does not work with free accounts.
 
-## Install Floorfill
+## Install BoomerBlaster
 
 ```sh
-brew install den-frie-vilje/tap/floorfill
+brew install den-frie-vilje/tap/boomerblaster
 ```
 
-This also installs the three programs Floorfill drives: `snapcast`,
+This also installs the three programs BoomerBlaster drives: `snapcast`,
 `shairport-sync` and `librespot`.
 
 Or from a clone of this repository, run `./install.sh`, which checks the
 same dependencies and copies the command into `~/.local/bin`.
 
-## Set up Floorfill
+## Set up BoomerBlaster
 
 1. Run:
 
    ```sh
-   floorfill init
+   boomerblaster init
    ```
 
-   Floorfill checks that the three programs are present, fetches the
+   BoomerBlaster checks that the three programs are present, fetches the
    listener page (Snapweb, a pinned release whose checksum it verifies), and
    writes its configuration. It answers with something like:
 
@@ -61,35 +61,35 @@ same dependencies and copies the command into `~/.local/bin`.
    found shairport-sync at /opt/homebrew/bin/shairport-sync
    found librespot at /opt/homebrew/bin/librespot
    fetching the listener page (Snapweb 0.9.3)
-   listener page unpacked in /Users/you/Library/Application Support/floorfill/snapweb
-   config written to /Users/you/.config/floorfill/config.json
-   snapserver.conf written to /Users/you/.config/floorfill/snapserver.conf
+   listener page unpacked in /Users/you/Library/Application Support/boomerblaster/snapweb
+   config written to /Users/you/.config/boomerblaster/config.json
+   snapserver.conf written to /Users/you/.config/boomerblaster/snapserver.conf
    ```
 
-   To give the venue a name other than "Floorfill", the name phones will see,
-   run `floorfill init --name "Third floor"` instead.
+   To give the venue a name other than "BoomerBlaster", the name phones will see,
+   run `boomerblaster init --name "Third floor"` instead.
 
 2. Start it:
 
    ```sh
-   floorfill start
+   boomerblaster start
    ```
 
    The server keeps running in the background, also after you log in again,
-   until you run `floorfill stop`. If macOS asks whether `snapserver`,
+   until you run `boomerblaster stop`. If macOS asks whether `snapserver`,
    `shairport-sync` or `librespot` may accept incoming connections, allow it;
    that is listeners and phones reaching your Mac.
 
 3. Get the address to send round:
 
    ```sh
-   floorfill url
+   boomerblaster url
    ```
 
    It prints two: one with your Mac's name, such as `http://oles-mbp.local:1780`,
    and one with its IP address for devices that cannot resolve the name.
 
-4. Check that everything is in place with `floorfill doctor`.
+4. Check that everything is in place with `boomerblaster doctor`.
 
 ## Let colleagues in
 
@@ -129,20 +129,20 @@ Spotify waits.
 
 ## Settings
 
-Floorfill writes and reads these files, and nothing else:
+BoomerBlaster writes and reads these files, and nothing else:
 
-- `~/.config/floorfill/config.json`, the settings below
-- `~/.config/floorfill/snapserver.conf`, generated from them
-- `~/Library/Application Support/floorfill/`, the listener page and the
+- `~/.config/boomerblaster/config.json`, the settings below
+- `~/.config/boomerblaster/snapserver.conf`, generated from them
+- `~/Library/Application Support/boomerblaster/`, the listener page and the
   server's own state
-- `~/Library/LaunchAgents/dk.denfrievilje.floorfill.plist`, while running
-- `~/Library/Logs/floorfill.log`, the server log
+- `~/Library/LaunchAgents/dk.denfrievilje.boomerblaster.plist`, while running
+- `~/Library/Logs/boomerblaster.log`, the server log
 
 `config.json` keys:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `name` | `"Floorfill"` | what phones see in the AirPlay and Spotify Connect lists |
+| `name` | `"BoomerBlaster"` | what phones see in the AirPlay and Spotify Connect lists |
 | `http_port` | `1780` | the listener page's port |
 | `stream_port`, `control_port` | `1704`, `1705` | Snapcast's audio and control ports |
 | `codec` | `"flac"` | `pcm`, `flac` or `opus`; pcm is the most robust, opus the lightest |
@@ -152,8 +152,8 @@ Floorfill writes and reads these files, and nothing else:
 | `spotify_bitrate` | `320` | 96, 160 or 320 |
 
 Change any of them from the command line, for example
-`floorfill set codec opus` or `floorfill set spotify false`, then
-`floorfill restart`.
+`boomerblaster set codec opus` or `boomerblaster set spotify false`, then
+`boomerblaster restart`.
 
 ## All commands
 
@@ -173,15 +173,15 @@ disarm          same as stop; run before brew uninstall
 version         print the version
 ```
 
-`floorfill status --json` returns Snapcast's full server state and exits 3
-when the server is down, so a script can poll it. `floorfill doctor` exits 2
+`boomerblaster status --json` returns Snapcast's full server state and exits 3
+when the server is down, so a script can poll it. `boomerblaster doctor` exits 2
 when something needs attention.
 
 ## Uninstall
 
 ```sh
-floorfill stop
-brew uninstall floorfill
+boomerblaster stop
+brew uninstall boomerblaster
 ```
 
 Or `./uninstall.sh` from a clone. Both leave the configuration, the listener
@@ -190,7 +190,7 @@ clean slate.
 
 ## How it works
 
-Floorfill is one Python file that configures and supervises three
+BoomerBlaster is one Python file that configures and supervises three
 open-source programs:
 
 - [shairport-sync](https://github.com/mikebrady/shairport-sync) receives
@@ -202,9 +202,9 @@ open-source programs:
 - [Snapweb](https://github.com/snapcast/snapweb), Snapcast's browser client,
   plays the stream in sync with Web Audio and shows the track. `init`
   downloads a pinned release and verifies its checksum; it is not bundled
-  here because it is GPL-3 and Floorfill is MIT.
+  here because it is GPL-3 and BoomerBlaster is MIT.
 
-`floorfill init` writes a `snapserver.conf` with one stream per receiver and
+`boomerblaster init` writes a `snapserver.conf` with one stream per receiver and
 a `meta` stream that wraps them, so listeners sit on a single stream named
 after the venue and hear whichever source is playing. Both receivers deliver
 44.1 kHz stereo, so nothing is resampled.
@@ -218,11 +218,11 @@ after the venue and hear whichever source is playing. Both receivers deliver
   be captured with a `process://` source; title and cover art are lost.
 - **AirPlay 1, not 2.** Homebrew's shairport-sync is built for classic
   AirPlay. Phones and Macs cast to it without noticing; the difference is
-  multi-room, which Floorfill does not need.
+  multi-room, which BoomerBlaster does not need.
 - **Browsers vary.** Chrome, Edge and Firefox report their output latency
   precisely; Safari less so, and may sit a few tens of milliseconds off.
 
 ## Licence
 
-MIT. The programs Floorfill installs and downloads carry their own licences:
+MIT. The programs BoomerBlaster installs and downloads carry their own licences:
 Snapcast and Snapweb GPL-3, shairport-sync and librespot MIT.

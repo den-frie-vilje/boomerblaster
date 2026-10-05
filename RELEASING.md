@@ -1,4 +1,4 @@
-# Releasing Floorfill
+# Releasing BoomerBlaster
 
 The release procedure, including the review gate.
 
@@ -27,20 +27,20 @@ README.
 
 ## 2. Ship
 
-1. Bump `VERSION` in `floorfill`. If Snapweb moved, bump `SNAPWEB_VERSION`
+1. Bump `VERSION` in `boomerblaster`. If Snapweb moved, bump `SNAPWEB_VERSION`
    and `SNAPWEB_SHA256` together, from the checksum GitHub shows on the
-   release's asset list, and run `floorfill init` on a real Mac to confirm
+   release's asset list, and run `boomerblaster init` on a real Mac to confirm
    the download and the page.
-2. `python3 -m py_compile floorfill`; `bash -n install.sh uninstall.sh`;
+2. `python3 -m py_compile boomerblaster`; `bash -n install.sh uninstall.sh`;
    `shellcheck install.sh uninstall.sh`.
 3. Commit with a standalone message (what was decided and why, not just
    what changed), tag `vX.Y.Z`, push branch and tag, create the GitHub
    release with upgrade notes for existing users. Confirm the Actions run
    is green.
-4. `curl -sL https://github.com/den-frie-vilje/floorfill/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256`,
+4. `curl -sL https://github.com/den-frie-vilje/boomerblaster/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256`,
    then update `url` and `sha256` in
-   `den-frie-vilje/homebrew-tap/Formula/floorfill.rb`; commit and push.
-5. Dogfood: `brew update && brew upgrade floorfill`, `floorfill restart`,
+   `den-frie-vilje/homebrew-tap/Formula/boomerblaster.rb`; commit and push.
+5. Dogfood: `brew update && brew upgrade boomerblaster`, `boomerblaster restart`,
    AirPlay something from a phone and listen on a second machine before
    considering the release done.
 6. If the release changed facts the landing page states (requirements,

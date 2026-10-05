@@ -1,9 +1,9 @@
 #!/bin/sh
-# floorfill installer for a clone of this repository: copies the command
+# boomerblaster installer for a clone of this repository: copies the command
 # into ~/.local/bin and checks the three programs it drives. Setup itself
 # (fetching the listener page, writing the configuration) happens in
-# `floorfill init`, which explains what it does. Homebrew users do not
-# need this file: brew install den-frie-vilje/tap/floorfill.
+# `boomerblaster init`, which explains what it does. Homebrew users do not
+# need this file: brew install den-frie-vilje/tap/boomerblaster.
 set -eu
 
 BIN_DIR="$HOME/.local/bin"
@@ -25,14 +25,14 @@ if [ -n "$missing" ]; then
         # shellcheck disable=SC2086
         brew install $missing
     else
-        echo "floorfill needs them before init:"
+        echo "boomerblaster needs them before init:"
         echo "  brew install$missing"
     fi
 fi
 
 mkdir -p "$BIN_DIR"
-install -m 0755 "$HERE/floorfill" "$BIN_DIR/floorfill"
-echo "installed $BIN_DIR/floorfill"
+install -m 0755 "$HERE/boomerblaster" "$BIN_DIR/boomerblaster"
+echo "installed $BIN_DIR/boomerblaster"
 
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
@@ -42,6 +42,6 @@ esac
 
 echo
 echo "Next:"
-echo "  floorfill init"
-echo "  floorfill start"
-echo "  floorfill url"
+echo "  boomerblaster init"
+echo "  boomerblaster start"
+echo "  boomerblaster url"
