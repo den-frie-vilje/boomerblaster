@@ -91,6 +91,15 @@
   .hero-media img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
   @media (min-width: 1240px) { .hero-media img { border-radius: var(--radius); } .hero-media { padding: 0 22px; } .hero-media .wide { padding: 0; } }
   .fn { color: var(--grey); font-size: 12px; margin-top: 12px; }
+
+  /* story */
+  .story { max-width: 720px; }
+  .story .headline { margin-bottom: 34px; }
+  .story .copy { font-size: clamp(21px, 2.6vw, 28px); line-height: 1.25; letter-spacing: .004em; color: #a1a1a6; max-width: none; }
+  .story .copy + .copy { margin-top: 26px; }
+  .story .copy em { font-style: normal; letter-spacing: .3em; margin-right: -.3em; color: #f5f5f7; }
+  .story .copy strong { color: #f5f5f7; font-weight: 700; font-size: 1.3em; }
+  .story .pull { font-weight: 600; letter-spacing: -.01em; font-size: clamp(24px, 3.2vw, 36px); margin-top: 44px; }
   sup { font-size: .55em; vertical-align: top; position: relative; top: .25em; }
 
   /* highlights strip */
@@ -228,7 +237,19 @@
   </div>
 </section>
 
-<section class="dark-s" id="overview" style="padding-top: 60px">
+<section class="dark-s" id="overview">
+  <div class="wrap story">
+    <p class="eyebrow">Do you remember the time</p>
+    <h2 class="headline xl">When the office was the party.</h2>
+    <p class="copy">You lived under your desk. It was the dot-com boom, and the desk was where the boom happened. You smoked indoors. You ripped your vinyl to 128 kbit/s and put the vinyl out with the recycling.</p>
+    <p class="copy">Everyone was noisy. Everyone listened to the same thing, because everyone had to. Noise cancelling meant someone going <em>schhh</em>. And every week somebody nudged the volume knob one notch, and nobody noticed, and the frog boiled.</p>
+    <p class="copy"><strong>Well. No?</strong></p>
+    <p class="copy">Now you can at least listen together again. And embarrass yourself with your low-BPM downtempo<sup>5</sup> in front of the whole floor, at a volume that bothers no one.</p>
+    <p class="copy pull"><span class="gradient">Same room. Same record. Separate ears.</span></p>
+  </div>
+</section>
+
+<section class="dark-s" style="padding-top: 0">
   <div class="wrap">
     <h2 class="headline">Get the highlights.</h2>
   </div>
@@ -247,7 +268,7 @@
     </figure>
     <figure class="card">
       <img src="img/hero.jpg" alt="Colleagues at their own desks, each in headphones, working and dancing in sync." loading="lazy">
-      <figcaption class="t">One clock. <span>Twenty people. Same downbeat.</span></figcaption>
+      <figcaption class="t">Same record. <span>Like 1999, minus the frog.</span></figcaption>
     </figure>
   </div>
 </section>
@@ -313,13 +334,13 @@
     <div class="center">
       <p class="eyebrow">Every generation</p>
       <h2 class="headline">Boomers to zoomers.<br>One downbeat.</h2>
-      <p class="copy" style="margin: 22px auto 0">Half the office remembers cassettes. Half the office has never seen one. Boomerbox is the first boombox both halves can agree on, because it keeps itself to itself.</p>
+      <p class="copy" style="margin: 22px auto 0">Half the office once slept under a desk. Half the office thinks that is a wellness trend. Boomerbox is the first boombox both halves can agree on, because it keeps itself to itself.</p>
     </div>
     <div class="gens">
       <div class="gen">
         <img src="img/coffee.jpg" width="1200" height="896" alt="A woman in her sixties, headphones on, typing at a standing desk and dancing." loading="lazy">
         <h3>Boomer.</h3>
-        <p>Hands on the keyboard. Hips elsewhere. Quarterly report on schedule.</p>
+        <p>Hands on the keyboard. Hips in 1999. Quarterly report on schedule.</p>
       </div>
       <div class="gen">
         <img src="img/point.jpg" width="1200" height="896" alt="A young man in a beanie and headphones points upward while working at his standing desk." loading="lazy">
@@ -353,6 +374,9 @@
         <tr><td class="row">Works at an elevation desk</td><td class="yes"><b>Yes</b></td><td class="yes"><b>Yes</b><span>that's the problem</span></td><td class="yes"><b>Yes</b></td></tr>
         <tr><td class="row">Installs on colleagues' machines</td><td class="yes"><b>None</b></td><td class="yes"><b>None</b></td><td class="yes"><b>None</b></td></tr>
         <tr><td class="row">Dancing</td><td class="yes"><b>Yes</b><span>at your own desk</span></td><td class="yes"><b>Yes</b><span>briefly</span></td><td class="no"><b>Discouraged</b></td></tr>
+        <tr><td class="row">Volume creep</td><td class="yes"><b>Impossible</b><span>everyone has their own knob</span></td><td class="no"><b>One notch a week</b><span>the frog never notices</span></td><td class="yes"><b>None</b></td></tr>
+        <tr><td class="row">Noise cancelling</td><td class="yes"><b>Built into the headphones</b></td><td class="no"><b>Someone going schhh</b></td><td class="yes"><b>Is the product</b></td></tr>
+        <tr><td class="row">Smoking indoors</td><td class="no"><b>Still no</b></td><td class="no"><b>Still no</b></td><td class="no"><b>Still no</b></td></tr>
       </tbody>
     </table>
     </div>
@@ -423,6 +447,7 @@ boomerbox url      <span class="c"># the address to send round</span></pre>
       <li>Based on Snapcast's browser client. Browsers that report their output latency precisely land within a few tens of milliseconds of each other; Safari may sit slightly further off. Testing conducted on an office floor with headphones, where nobody can hear anyone else's drift.</li>
       <li>AirPlay buffers approximately two seconds by design. Beat-matching across the office is not supported and not recommended.</li>
       <li>Spotify Connect through librespot requires a Spotify Premium account. Spotify is a trademark of Spotify AB. AirPlay is a trademark of Apple Inc. Chromecast is a trademark of Google LLC. None of them had anything to do with this.</li>
+      <li>Downtempo generally sits below 100 beats per minute. Your colleagues can see the cover art. Choose accordingly. Vinyl ripped at 128 kbit/s in 1999 plays fine; the vinyl itself is not recoverable.</li>
     </ol>
     <div class="legal">
       <p>The photographs on this page were generated with an image model. No office workers of any generation were elevated, or asked to dance while working, in the making of it. This page parodies a register, not a company; it is not affiliated with, endorsed by, or acquired by Apple. Yet.</p>
