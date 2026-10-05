@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Floorfill. Fills the floor. Not the room.</title>
+<meta name="description" content="Silent disco for the open-plan office. Cast from your phone. Everyone hears it in their own headphones, in sync, from a web page on your Mac. The colleague who wants quiet hears nothing.">
+<meta property="og:title" content="Floorfill. Fills the floor. Not the room.">
+<meta property="og:description" content="Silent disco for the open-plan office. Free. On brew. Nothing to install on anyone else's machine.">
+<meta property="og:image" content="https://den-frie-vilje.github.io/floorfill/og.jpg">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🎧</text></svg>">
+<style>
+  :root {
+    --bg: #f6f5f1;
+    --bg-2: #ecebe5;
+    --ink: #121216;
+    --ink-2: #4a4a52;
+    --dim: #7c7c86;
+    --line: #dcdbd4;
+    --blue: #0b2a5b;
+    --neon: #c9ff3a;
+    --dark: #121216;
+    --dark-ink: #f4f3ee;
+    --dark-dim: #a9a9b2;
+    --radius: 1.25rem;
+    --ease: cubic-bezier(.2, .7, .2, 1);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    line-height: 1.5;
+    font-size: 17px;
+  }
+  img { display: block; max-width: 100%; height: auto; }
+  a { color: inherit; }
+  ::selection { background: var(--neon); color: var(--ink); }
+
+  section { padding: clamp(5rem, 12vh, 9rem) 1.25rem; }
+  .wrap { max-width: 68rem; margin: 0 auto; }
+  .narrow { max-width: 44rem; margin: 0 auto; }
+  .center { text-align: center; }
+
+  .kicker {
+    text-transform: uppercase; letter-spacing: .2em; font-size: .74rem; font-weight: 600;
+    color: var(--dim); margin-bottom: 1.1rem;
+  }
+  .kicker::before {
+    content: ""; display: inline-block; width: .5em; height: .5em; border-radius: 50%;
+    background: var(--neon); margin-right: .7em; vertical-align: .05em;
+    box-shadow: 0 0 0 .18em rgba(201, 255, 58, .35);
+  }
+  h1, h2, h3 { font-weight: 700; letter-spacing: -0.03em; text-wrap: balance; }
+  h2 { font-size: clamp(2.1rem, 5.6vw, 3.9rem); line-height: 1.04; margin-bottom: 1.3rem; }
+  h3 { font-size: 1.25rem; letter-spacing: -0.015em; margin-bottom: .45rem; }
+  p.lead { font-size: clamp(1.1rem, 2.1vw, 1.4rem); color: var(--ink-2); max-width: 36em; }
+  p.lead strong { color: var(--ink); font-weight: 600; }
+  .narrow p.lead { margin-left: auto; margin-right: auto; }
+  .fine { color: var(--dim); font-size: .95rem; }
+
+  /* hero */
+  .hero { padding-top: clamp(5rem, 16vh, 11rem); padding-bottom: 3rem; }
+  .wordmark {
+    font-size: clamp(3.4rem, 11vw, 8.5rem); line-height: .95; letter-spacing: -0.045em;
+    margin: 0 0 1.2rem;
+  }
+  .wordmark .dot { color: var(--blue); }
+  .tagline {
+    font-size: clamp(1.5rem, 3.6vw, 2.6rem); font-weight: 600; letter-spacing: -0.025em;
+    line-height: 1.15; margin-bottom: 1.4rem; color: var(--ink);
+  }
+  .tagline em { font-style: normal; color: var(--blue); }
+  .cta-row { display: flex; gap: .8rem; justify-content: center; flex-wrap: wrap; margin-top: 2.2rem; }
+  .btn {
+    display: inline-flex; align-items: center; gap: .5rem;
+    padding: .85rem 1.35rem; border-radius: 999px; font-weight: 600; text-decoration: none;
+    font-size: 1rem; transition: transform .2s var(--ease), background .2s var(--ease), color .2s var(--ease);
+  }
+  .btn:hover { transform: translateY(-1px); }
+  .btn:focus-visible { outline: 3px solid var(--neon); outline-offset: 2px; }
+  .btn-primary { background: var(--ink); color: var(--bg); }
+  .btn-primary:hover { background: var(--blue); }
+  .btn-ghost { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1.5px var(--line); }
+  .btn-ghost:hover { box-shadow: inset 0 0 0 1.5px var(--ink); }
+
+  .photo {
+    border-radius: var(--radius); overflow: hidden; background: var(--bg-2);
+    box-shadow: 0 30px 80px -40px rgba(11, 42, 91, .35);
+  }
+  .photo img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+  .photo.tall img { aspect-ratio: 4 / 3; }
+  .hero-photo { padding: 0 1.25rem clamp(3rem, 8vh, 6rem); }
+  .hero-photo .photo { max-width: 76rem; margin: 0 auto; }
+  .caption { color: var(--dim); font-size: .9rem; margin-top: .9rem; text-align: center; }
+
+  /* two column */
+  .two { display: grid; gap: clamp(2rem, 5vw, 5rem); align-items: center; }
+  @media (min-width: 56rem) { .two { grid-template-columns: 1.05fr .95fr; } .two.flip > :first-child { order: 2; } }
+
+  /* steps */
+  .steps { display: grid; gap: 1.2rem; margin-top: 3rem; }
+  @media (min-width: 48rem) { .steps { grid-template-columns: repeat(3, 1fr); } }
+  .step { padding: 1.8rem; border-radius: var(--radius); background: var(--bg-2); }
+  .step .n {
+    font-size: 3rem; font-weight: 700; letter-spacing: -0.05em; line-height: 1;
+    color: var(--blue); margin-bottom: 1rem;
+  }
+  .step p { color: var(--ink-2); }
+
+  /* features */
+  .alt { background: var(--bg-2); }
+  .grid { display: grid; gap: 1.2rem; margin-top: 3rem; }
+  @media (min-width: 40rem) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 64rem) { .grid { grid-template-columns: repeat(3, 1fr); } }
+  .tile { background: var(--bg); border-radius: var(--radius); padding: 1.8rem; min-height: 13rem; display: flex; flex-direction: column; justify-content: flex-end; }
+  .tile h3 { font-size: 1.35rem; }
+  .tile p { color: var(--ink-2); }
+  .tile.blue { background: var(--blue); color: var(--dark-ink); }
+  .tile.blue p { color: rgba(244, 243, 238, .78); }
+  .tile.neon { background: var(--neon); color: var(--ink); }
+  .tile.neon p { color: rgba(18, 18, 22, .72); }
+
+  /* numbers */
+  .numbers { display: grid; gap: 2rem 1.5rem; margin-top: 3rem; }
+  @media (min-width: 40rem) { .numbers { grid-template-columns: repeat(2, 1fr); } }
+  @media (min-width: 64rem) { .numbers { grid-template-columns: repeat(3, 1fr); } }
+  .num { border-top: 1.5px solid var(--line); padding-top: 1.2rem; }
+  .num b { display: block; font-size: clamp(3rem, 7vw, 5rem); font-weight: 700; letter-spacing: -0.05em; line-height: 1; }
+  .num span { display: block; color: var(--ink-2); margin-top: .5rem; }
+
+  /* dark */
+  .dark { background: var(--dark); color: var(--dark-ink); }
+  .dark .kicker { color: var(--dark-dim); }
+  .dark p.lead { color: var(--dark-dim); }
+  .dark p.lead strong { color: var(--dark-ink); }
+  .honest { display: grid; gap: 2.5rem; margin-top: 3rem; }
+  @media (min-width: 56rem) { .honest { grid-template-columns: repeat(3, 1fr); } }
+  .honest h3 { color: var(--dark-ink); }
+  .honest p { color: var(--dark-dim); }
+
+  /* install */
+  pre.code {
+    background: var(--ink); color: var(--dark-ink); border-radius: var(--radius);
+    padding: 1.6rem 1.8rem; overflow-x: auto; text-align: left; font-size: 1rem; line-height: 1.7;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; position: relative; margin-top: 2rem;
+  }
+  pre.code .c { color: var(--dark-dim); }
+  pre.code .k { color: var(--neon); }
+  .copy {
+    position: absolute; top: .9rem; right: .9rem; background: rgba(255,255,255,.08); color: var(--dark-ink);
+    border: 0; border-radius: 999px; padding: .45rem .9rem; font: inherit; font-size: .85rem; cursor: pointer;
+  }
+  .copy:hover { background: rgba(255,255,255,.16); }
+  .copy:focus-visible { outline: 2px solid var(--neon); }
+
+  footer { padding: 4rem 1.25rem 5rem; color: var(--dim); font-size: .9rem; }
+  footer p { max-width: 44rem; margin: 0 auto .7rem; text-align: center; }
+  footer a { color: var(--ink-2); }
+
+  /* reveal */
+  .reveal { opacity: 0; transform: translateY(18px); transition: opacity .7s var(--ease), transform .7s var(--ease); }
+  .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+</style>
+</head>
+<body>
+
+<section class="hero center">
+  <div class="narrow">
+    <p class="kicker">Den Frie Vilje presents</p>
+    <h1 class="wordmark">Floorfill<span class="dot">.</span></h1>
+    <p class="tagline">Fills the floor. <em>Not the room.</em></p>
+    <p class="lead">Silent disco for the open-plan office. Play from your phone. Everyone hears it in their own headphones, at the same moment, from a web page on your Mac. <strong>The colleague who wants quiet hears nothing at all.</strong></p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="#install">Get Floorfill</a>
+      <a class="btn btn-ghost" href="https://github.com/den-frie-vilje/floorfill">View the source</a>
+    </div>
+  </div>
+</section>
+
+<div class="hero-photo">
+  <figure class="photo">
+    <img src="img/hero.jpg" width="1376" height="768" alt="Five colleagues in over-ear headphones dancing at raised standing desks in a sunlit open-plan office, one mid-air, while a colleague in the foreground types undisturbed." fetchpriority="high">
+  </figure>
+  <p class="caption">Actual footage.* &nbsp;&nbsp; *Of a concept.</p>
+</div>
+
+<section class="reveal">
+  <div class="wrap two">
+    <div>
+      <p class="kicker">The problem</p>
+      <h2>A speaker in an open-plan office is a hostile act.</h2>
+      <p class="lead">An elevation desk at full height is a stage. A speaker on it is an incident. Somewhere behind you, someone is trying to think about a spreadsheet. <strong>Floorfill lets you dance anyway.</strong> Your music, your floor, everyone's own volume knob.</p>
+    </div>
+    <figure class="photo tall">
+      <img src="img/floor.jpg" width="1376" height="768" alt="Wide view of an open-plan office: on the left a group in headphones dances with arms raised, on the right colleagues work in calm concentration." loading="lazy">
+    </figure>
+  </div>
+</section>
+
+<section class="alt reveal">
+  <div class="wrap">
+    <div class="narrow center">
+      <p class="kicker">How it works</p>
+      <h2>Cast. Clock. Headphones.</h2>
+      <p class="lead">Three steps, two of which happen without you.</p>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="n">1</div>
+        <h3>Cast</h3>
+        <p>AirPlay from your iPhone or Mac, or pick Floorfill in Spotify's device list from any phone. Music, Spotify, Tidal, podcasts. Anything that can cast.</p>
+      </div>
+      <div class="step">
+        <div class="n">2</div>
+        <h3>Clock</h3>
+        <p>Your Mac stamps every twenty milliseconds of music against one clock and hands it to whoever asks. We call it the clock. It's one of our better names.</p>
+      </div>
+      <div class="step">
+        <div class="n">3</div>
+        <h3>Headphones</h3>
+        <p>Colleagues open one address in a browser and press play. They hear it together. The page shows the track and the cover art. Nothing to install. Nothing to explain to IT.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap two flip">
+    <div>
+      <p class="kicker">The breakthrough</p>
+      <h2>Introducing the Sync Engine.</h2>
+      <p class="lead">Every listener's browser measures its distance to your Mac's clock, dozens of times a minute, and schedules each chunk of audio to play at the agreed instant. Drift past five milliseconds and it corrects itself. <strong>Twenty people, one downbeat.</strong> Industry-leading togetherness.</p>
+      <p class="fine" style="margin-top:1.2rem">It's Snapcast. It has been doing this for living rooms for a decade. We pointed it at an office.</p>
+    </div>
+    <figure class="photo tall">
+      <img src="img/point.jpg" width="1200" height="896" alt="A woman in a mustard turtleneck and headphones points to the ceiling at a raised standing desk, two colleagues dancing out of focus behind her." loading="lazy">
+    </figure>
+  </div>
+</section>
+
+<section class="alt reveal">
+  <div class="wrap">
+    <div class="narrow center">
+      <p class="kicker">Features. A reasonable number of features.</p>
+      <h2>Our most complete Floorfill ever.</h2>
+      <p class="lead">Also our first.</p>
+    </div>
+    <div class="grid">
+      <div class="tile blue">
+        <h3>Sync. Actual sync.</h3>
+        <p>Laptops land within a few tens of milliseconds of each other. Nobody can hear anyone else's headphones, so that is a rounding error with a beat.</p>
+      </div>
+      <div class="tile">
+        <h3>Zero install</h3>
+        <p>A web page. The most compatible app we have ever shipped. Works on the laptop IT gave you and the phone IT doesn't know about.</p>
+      </div>
+      <div class="tile">
+        <h3>Cover art. Large.</h3>
+        <p>Title, artist, album, artwork. The page answers "what is this?" before anyone has to take their headphones off to ask.</p>
+      </div>
+      <div class="tile">
+        <h3>Two ways in</h3>
+        <p>AirPlay for iPhones and Macs. Spotify Connect for every phone with Spotify. Both land on the same floor. Chromecast? See Honesty, below.</p>
+      </div>
+      <div class="tile neon">
+        <h3>Privacy. On the LAN.</h3>
+        <p>Nothing leaves the office. Not the music, not the listener list, not your taste in nineties house. No account, no cloud, no telemetry.</p>
+      </div>
+      <div class="tile">
+        <h3>Your laptop is the venue</h3>
+        <p>One Mac, awake, on the network. Close the lid and the night is over. Some would call that a limitation. We call it closing time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="reveal">
+  <div class="wrap">
+    <div class="narrow center">
+      <p class="kicker">The numbers</p>
+      <h2>Measured. Rounded. Published.</h2>
+    </div>
+    <div class="numbers">
+      <div class="num"><b>1</b><span>clock. The whole office on it.</span></div>
+      <div class="num"><b>0</b><span>speakers. The breakthrough, in a sense.</span></div>
+      <div class="num"><b>2</b><span>ways to cast: AirPlay and Spotify Connect.</span></div>
+      <div class="num"><b>20<small style="font-size:.4em; letter-spacing:0">ms</small></b><span>per chunk of music, stamped against the clock.</span></div>
+      <div class="num"><b>0</b><span>installs on anyone else's machine. Ever.</span></div>
+      <div class="num"><b>~2<small style="font-size:.4em; letter-spacing:0">s</small></b><span>from your thumb to their ears. AirPlay buffers. Nobody is beat-matching.</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="dark reveal">
+  <div class="wrap">
+    <div class="narrow center">
+      <p class="kicker">Honesty. A courageous feature.</p>
+      <h2>Three things we would rather tell you now.</h2>
+    </div>
+    <div class="honest">
+      <div>
+        <h3>Chromecast. We tried.</h3>
+        <p>Spotify and YouTube check that a Cast receiver carries a certificate signed by Google. Nobody outside Google can get one, so no open-source receiver passes. Spotify Connect covers most of what people want Chromecast for. If you truly need one, a physical Chromecast with audio out into your Mac works, minus the cover art.</p>
+      </div>
+      <div>
+        <h3>Spotify needs Premium.</h3>
+        <p>librespot, the Spotify Connect receiver Floorfill uses, is firm about it. AirPlay works with whatever you already pay for, including nothing.</p>
+      </div>
+      <div>
+        <h3>Phones listen with the screen on.</h3>
+        <p>iOS stops a web page's audio when the screen locks. Laptops are the better listener. Phones are the better DJ. This arrangement suits everyone.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="alt reveal">
+  <div class="wrap two">
+    <figure class="photo tall">
+      <img src="img/coffee.jpg" width="1200" height="896" alt="A bearded man in a beanie and headphones dances with a coffee cup raised at a standing desk, while a colleague behind him works quietly." loading="lazy">
+    </figure>
+    <div>
+      <p class="kicker">The experience</p>
+      <h2>Press play. Put them on. Lose the afternoon.</h2>
+      <p class="lead">Listeners get their own volume, the current track, and a quiet indicator of how far they are from the clock. DJs get a device in the AirPlay list, like every other speaker they have ever used. <strong>Except this one is everyone.</strong></p>
+    </div>
+  </div>
+</section>
+
+<section class="reveal center" id="install">
+  <div class="narrow">
+    <p class="kicker">Available today</p>
+    <h2>Not in a shop. On brew.</h2>
+    <p class="lead">Four lines on the DJ's Mac. Zero lines on anyone else's.</p>
+    <pre class="code" id="cmds"><button class="copy" type="button" data-copy>Copy</button><span class="k">brew</span> install den-frie-vilje/tap/floorfill
+<span class="k">floorfill</span> init          <span class="c"># checks the parts, fetches the listener page</span>
+<span class="k">floorfill</span> start         <span class="c"># runs until you say stop</span>
+<span class="k">floorfill</span> url           <span class="c"># the address to send round</span></pre>
+    <p class="fine" style="margin-top:1.4rem">Then AirPlay to "Floorfill" and send the address round. The price? There isn't one. Courage.</p>
+  </div>
+</section>
+
+<section class="dark reveal center">
+  <div class="narrow">
+    <p class="kicker">One more thing</p>
+    <h2>It's one Python file. And three giants.</h2>
+    <p class="lead">Snapcast keeps the clock. shairport-sync receives AirPlay. librespot receives Spotify Connect. Snapweb plays it in the browser. <strong>We wrote the bit that introduces them to each other.</strong> You can read all of it before lunch.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" style="background:var(--dark-ink); color:var(--dark)" href="https://github.com/den-frie-vilje/floorfill/blob/main/floorfill">Read the source</a>
+      <a class="btn btn-ghost" style="color:var(--dark-ink); box-shadow: inset 0 0 0 1.5px rgba(244,243,238,.3)" href="https://github.com/den-frie-vilje/floorfill#readme">Read the README</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <p>Requires a Mac with Homebrew, a network that lets devices talk to each other, headphones for everyone, and at least one colleague who doesn't dance. MIT licensed. Snapcast, shairport-sync and librespot are their authors' work and carry their own licences.</p>
+  <p>Designed by <a href="https://denfrievilje.dk">Den Frie Vilje</a> in Copenhagen. The photographs were generated with an image model; no office hipsters were elevated in the making of this page.</p>
+  <p>This page parodies a register, not a company. Not affiliated with, endorsed by, or acquired by Apple, Google, Spotify or anyone with a legal department. Yet.</p>
+</footer>
+
+<script>
+(function () {
+  var items = document.querySelectorAll(".reveal");
+  if (!("IntersectionObserver" in window) || matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    items.forEach(function (el) { el.classList.add("in"); });
+  } else {
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, { rootMargin: "0px 0px -10% 0px" });
+    items.forEach(function (el) { io.observe(el); });
+  }
+  var btn = document.querySelector("[data-copy]");
+  if (btn && navigator.clipboard) {
+    btn.addEventListener("click", function () {
+      var text = "brew install den-frie-vilje/tap/floorfill\nfloorfill init\nfloorfill start\nfloorfill url\n";
+      navigator.clipboard.writeText(text).then(function () {
+        btn.textContent = "Copied"; setTimeout(function () { btn.textContent = "Copy"; }, 1600);
+      });
+    });
+  } else if (btn) { btn.remove(); }
+})();
+</script>
+</body>
+</html>

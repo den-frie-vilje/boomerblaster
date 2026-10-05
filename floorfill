@@ -1,0 +1,748 @@
+#!/usr/bin/env python3
+"""floorfill: silent disco for the open-plan office.
+
+One person plays music from a phone or a Mac. Everyone else hears it in
+their own headphones, at the same moment, from a web page served by the
+DJ's laptop. Nobody installs anything; the page shows what is playing,
+with cover art.
+
+floorfill is the wiring between three open-source programs that do the
+actual work, all installed by Homebrew:
+
+  shairport-sync   an AirPlay receiver; iPhones and Macs cast to it
+  librespot        a Spotify Connect receiver; any phone casts to it
+  snapserver       takes the audio from both, stamps every chunk against
+                   one clock, and streams it to listeners who play each
+                   chunk at the agreed time (Snapcast)
+
+The listener page is Snapweb, Snapcast's own browser client. It plays the
+stream in sync with Web Audio and shows the current track. floorfill
+fetches a pinned release of it on `init`, verifies its checksum, and
+points snapserver at it.
+
+Commands:
+  init     check the dependencies, fetch the listener page, write the
+           configuration and the snapserver.conf it generates. Safe to
+           run again; it keeps your settings and regenerates the rest.
+           Flags: --name NAME (what phones see), --no-airplay,
+           --no-spotify, --codec pcm|flac|opus, --port N.
+  start    run the server in the background and keep it running, also
+           after you log in again, via a LaunchAgent, until `stop`.
+  stop     stop the server and remove the LaunchAgent.
+  restart  stop, then start; run after `set`.
+  run      run the server in the foreground. What `start` and
+           `brew services start floorfill` run for you.
+  status   who is listening, which source is live, and what is playing.
+           --json prints the raw server state for scripts.
+  url      the address colleagues open. --json for scripts.
+  doctor   check everything a colleague's browser depends on: programs,
+           listener page, configuration, ports, hostname, firewall.
+  set KEY VALUE
+           change a setting from the command line (see `config`).
+  config   print the settings and where they live.
+  logs     print the server log; -f follows it.
+  disarm   remove the LaunchAgent (what `stop` does, for uninstall).
+  version  print the version.
+
+Files: ~/.config/floorfill/config.json           your settings
+       ~/.config/floorfill/snapserver.conf       generated from them
+       ~/Library/Application Support/floorfill/  listener page, server state
+       ~/Library/Logs/floorfill.log              the server log
+       ~/Library/LaunchAgents/dk.denfrievilje.floorfill.plist
+On Linux the last three move to ~/.local/share/floorfill, ~/.local/state
+and nowhere (use `run` under your own supervisor).
+"""
+
+import hashlib
+import io
+import json
+import os
+import plistlib
+import shutil
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+import zipfile
+from urllib.parse import quote
+
+VERSION = "0.1.0"
+LABEL = "dk.denfrievilje.floorfill"
+
+# The listener page, pinned. Bump both together; the checksum is the one
+# GitHub shows on the release's asset list.
+SNAPWEB_VERSION = "0.9.3"
+SNAPWEB_URL = (
+    "https://github.com/snapcast/snapweb/releases/download/"
+    f"v{SNAPWEB_VERSION}/snapweb.zip"
+)
+SNAPWEB_SHA256 = "cc258df98b8c474ea19048bc84c0c2e2c5fbc3b0856aef03a838f3a4489fa4c7"
+
+HOME = os.path.expanduser("~")
+DARWIN = sys.platform == "darwin"
+CONFIG_DIR = os.path.join(HOME, ".config", "floorfill")
+CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
+SNAPSERVER_CONF = os.path.join(CONFIG_DIR, "snapserver.conf")
+if DARWIN:
+    DATA_DIR = os.path.join(HOME, "Library", "Application Support", "floorfill")
+    LOG_PATH = os.path.join(HOME, "Library", "Logs", "floorfill.log")
+    PLIST_PATH = os.path.join(HOME, "Library", "LaunchAgents", LABEL + ".plist")
+else:
+    DATA_DIR = os.path.join(HOME, ".local", "share", "floorfill")
+    LOG_PATH = os.path.join(HOME, ".local", "state", "floorfill.log")
+    PLIST_PATH = None
+SNAPWEB_DIR = os.path.join(DATA_DIR, "snapweb")
+STATE_DIR = os.path.join(DATA_DIR, "state")
+
+DEFAULTS = {
+    # What phones see in the AirPlay and Spotify Connect device lists.
+    "name": "Floorfill",
+    # The listener page and the control API share this port.
+    "http_port": 1780,
+    # Snapcast's raw audio port and its JSON-RPC control port.
+    "stream_port": 1704,
+    "control_port": 1705,
+    # pcm is the most robust in browsers, flac halves the bandwidth, opus
+    # takes it down to a few hundred kbit/s per listener.
+    "codec": "flac",
+    # Milliseconds between the server stamping a chunk and listeners
+    # playing it. Larger survives worse Wi-Fi; smaller feels snappier.
+    "buffer_ms": 1000,
+    "airplay": True,
+    "spotify": True,
+    "spotify_bitrate": 320,
+}
+SETTABLE = {
+    "name": str,
+    "http_port": int,
+    "stream_port": int,
+    "control_port": int,
+    "codec": str,
+    "buffer_ms": int,
+    "airplay": bool,
+    "spotify": bool,
+    "spotify_bitrate": int,
+}
+# The three the listener page can decode; snapserver also knows ogg,
+# which browsers would receive and fail to play.
+CODECS = ("pcm", "flac", "opus")
+
+
+# ---------------------------------------------------------------- helpers
+
+def say(msg=""):
+    print(msg)
+
+
+def fail(msg, code=1):
+    print("floorfill: " + msg, file=sys.stderr)
+    sys.exit(code)
+
+
+def which(name):
+    """Find a program on PATH, then in the usual Homebrew prefixes, which
+    launchd does not put on PATH."""
+    found = shutil.which(name)
+    if found:
+        return found
+    for prefix in ("/opt/homebrew/bin", "/usr/local/bin", "/home/linuxbrew/.linuxbrew/bin"):
+        candidate = os.path.join(prefix, name)
+        if os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def load_config():
+    cfg = dict(DEFAULTS)
+    if os.path.exists(CONFIG_PATH):
+        with open(CONFIG_PATH) as fh:
+            try:
+                cfg.update(json.load(fh))
+            except json.JSONDecodeError as exc:
+                fail(f"{CONFIG_PATH} is not valid JSON: {exc}")
+    return cfg
+
+
+def save_config(cfg):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG_PATH, "w") as fh:
+        json.dump(cfg, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+
+
+def validate(cfg):
+    if cfg["codec"] not in CODECS:
+        fail(f"codec must be one of {', '.join(CODECS)}, not {cfg['codec']!r}")
+    if cfg["spotify_bitrate"] not in (96, 160, 320):
+        fail("spotify_bitrate must be 96, 160 or 320")
+    if not (cfg["airplay"] or cfg["spotify"]):
+        fail("at least one of airplay and spotify must be on")
+    ports = (cfg["http_port"], cfg["stream_port"], cfg["control_port"])
+    if len(set(ports)) != 3:
+        fail("http_port, stream_port and control_port must differ")
+    for p in ports:
+        if not 1 <= p <= 65535:
+            fail(f"port {p} is out of range")
+
+
+def local_hostname():
+    if DARWIN:
+        try:
+            out = subprocess.run(
+                ["scutil", "--get", "LocalHostName"],
+                capture_output=True, text=True, check=True,
+            ).stdout.strip()
+            if out:
+                return out + ".local"
+        except (OSError, subprocess.CalledProcessError):
+            pass
+    name = socket.gethostname()
+    return name if name.endswith(".local") else name.split(".")[0] + ".local"
+
+
+def local_ip():
+    """The address of the interface that reaches the LAN. No packet is
+    sent; connecting a UDP socket only picks the route."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("10.255.255.255", 1))
+        return s.getsockname()[0]
+    except OSError:
+        return None
+    finally:
+        s.close()
+
+
+def port_open(port, host="127.0.0.1", timeout=0.5):
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+# -------------------------------------------------------- snapserver.conf
+
+def render_conf(cfg, paths):
+    """Write the snapserver.conf that expresses the settings.
+
+    Both receivers deliver 44.1 kHz stereo, so the streams are declared
+    at that rate and nothing is resampled. The `meta` stream wraps the
+    two receivers so that listeners sit on one stream, named after the
+    venue, and hear whichever source is playing; the first in its list
+    wins when both play at once.
+    """
+    name = quote(cfg["name"], safe="")
+    sources = []
+    order = []
+    if cfg["airplay"]:
+        sources.append(
+            f"source = airplay://{paths['shairport-sync']}?name=AirPlay"
+            f"&devicename={name}&port=5000"
+        )
+        order.append("AirPlay")
+    if cfg["spotify"]:
+        sources.append(
+            f"source = librespot://{paths['librespot']}?name=Spotify"
+            f"&devicename={name}&bitrate={cfg['spotify_bitrate']}"
+            "&killall=false&wd_timeout=7800"
+        )
+        order.append("Spotify")
+    sources.append(f"source = meta:///{'/'.join(order)}?name={name}")
+    lines = [
+        "# Generated by floorfill; edit ~/.config/floorfill/config.json",
+        "# and run `floorfill init` instead of editing this file.",
+        "",
+        "[server]",
+        "threads = -1",
+        f"datadir = {STATE_DIR}",
+        "",
+        "[http]",
+        "enabled = true",
+        f"port = {cfg['http_port']}",
+        f"doc_root = {SNAPWEB_DIR}",
+        "",
+        "[tcp]",
+        "enabled = true",
+        f"port = {cfg['control_port']}",
+        "",
+        "[stream]",
+        f"port = {cfg['stream_port']}",
+        "sampleformat = 44100:16:2",
+        f"codec = {cfg['codec']}",
+        f"buffer = {cfg['buffer_ms']}",
+        "chunk_ms = 20",
+        "send_to_muted = false",
+        *sources,
+        "",
+        "[logging]",
+        "sink = stderr",
+        "filter = *:info",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def required_programs(cfg):
+    programs = ["snapserver"]
+    if cfg["airplay"]:
+        programs.append("shairport-sync")
+    if cfg["spotify"]:
+        programs.append("librespot")
+    return programs
+
+
+def resolve_programs(cfg):
+    paths = {}
+    missing = []
+    for prog in required_programs(cfg):
+        path = which(prog)
+        if path:
+            paths[prog] = path
+        else:
+            missing.append(prog)
+    return paths, missing
+
+
+# ---------------------------------------------------------------- snapweb
+
+def snapweb_present():
+    return os.path.exists(os.path.join(SNAPWEB_DIR, "index.html"))
+
+
+def fetch_snapweb():
+    say(f"fetching the listener page (Snapweb {SNAPWEB_VERSION})")
+    req = urllib.request.Request(SNAPWEB_URL, headers={"User-Agent": "floorfill/" + VERSION})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            blob = resp.read()
+    except OSError as exc:
+        fail(f"could not download {SNAPWEB_URL}: {exc}")
+    digest = hashlib.sha256(blob).hexdigest()
+    if digest != SNAPWEB_SHA256:
+        fail(
+            "the downloaded listener page does not match the checksum "
+            f"floorfill expects\n  expected {SNAPWEB_SHA256}\n  got      {digest}\n"
+            "Nothing was installed. Check the release page and this version of floorfill."
+        )
+    if os.path.isdir(SNAPWEB_DIR):
+        shutil.rmtree(SNAPWEB_DIR)
+    os.makedirs(SNAPWEB_DIR)
+    with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+        for member in zf.namelist():
+            target = os.path.realpath(os.path.join(SNAPWEB_DIR, member))
+            if not target.startswith(os.path.realpath(SNAPWEB_DIR) + os.sep):
+                fail(f"refusing to unpack {member!r}: it would land outside {SNAPWEB_DIR}")
+        zf.extractall(SNAPWEB_DIR)
+    say(f"listener page unpacked in {SNAPWEB_DIR}")
+
+
+# --------------------------------------------------------------- launchd
+
+def launchd_target():
+    return f"gui/{os.getuid()}/{LABEL}"
+
+
+def launchd_loaded():
+    if not DARWIN:
+        return False
+    res = subprocess.run(["launchctl", "print", launchd_target()], capture_output=True)
+    return res.returncode == 0
+
+
+def write_plist():
+    """The LaunchAgent that keeps the server up. While the file exists
+    launchd also loads it at login, so `start` means "until stop"."""
+    os.makedirs(os.path.dirname(PLIST_PATH), exist_ok=True)
+    os.makedirs(os.path.dirname(LOG_PATH), exist_ok=True)
+    plist = {
+        "Label": LABEL,
+        "ProgramArguments": [sys.executable, os.path.realpath(__file__), "run"],
+        "RunAtLoad": True,
+        "KeepAlive": True,
+        "ThrottleInterval": 5,
+        "StandardOutPath": LOG_PATH,
+        "StandardErrorPath": LOG_PATH,
+        "EnvironmentVariables": {
+            "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin",
+        },
+    }
+    with open(PLIST_PATH, "wb") as fh:
+        plistlib.dump(plist, fh)
+
+
+# -------------------------------------------------------------- JSON-RPC
+
+def rpc(cfg, method, params=None, timeout=2.0):
+    msg = {"id": 1, "jsonrpc": "2.0", "method": method}
+    if params is not None:
+        msg["params"] = params
+    try:
+        with socket.create_connection(("127.0.0.1", cfg["control_port"]), timeout=timeout) as s:
+            s.sendall((json.dumps(msg) + "\r\n").encode())
+            buf = b""
+            s.settimeout(timeout)
+            while not buf.endswith(b"\n"):
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                buf += chunk
+    except OSError:
+        return None
+    try:
+        reply = json.loads(buf.decode())
+    except json.JSONDecodeError:
+        return None
+    return reply.get("result")
+
+
+# --------------------------------------------------------------- commands
+
+def cmd_init(args):
+    cfg = load_config()
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--name" and i + 1 < len(args):
+            cfg["name"] = args[i + 1]
+            i += 1
+        elif a == "--port" and i + 1 < len(args):
+            cfg["http_port"] = int(args[i + 1])
+            i += 1
+        elif a == "--codec" and i + 1 < len(args):
+            cfg["codec"] = args[i + 1]
+            i += 1
+        elif a == "--no-airplay":
+            cfg["airplay"] = False
+        elif a == "--no-spotify":
+            cfg["spotify"] = False
+        elif a == "--yes":
+            pass
+        else:
+            fail(f"init: unknown argument {a!r}")
+        i += 1
+    validate(cfg)
+
+    paths, missing = resolve_programs(cfg)
+    if missing:
+        fail(
+            "missing: " + ", ".join(missing) + "\n"
+            "Install with Homebrew, then run init again:\n"
+            "  brew install " + " ".join(
+                {"snapserver": "snapcast"}.get(m, m) for m in missing
+            )
+        )
+    for prog, path in paths.items():
+        say(f"found {prog} at {path}")
+
+    if snapweb_present():
+        say(f"listener page present in {SNAPWEB_DIR}")
+    else:
+        fetch_snapweb()
+
+    os.makedirs(STATE_DIR, exist_ok=True)
+    save_config(cfg)
+    with open(SNAPSERVER_CONF, "w") as fh:
+        fh.write(render_conf(cfg, paths))
+    say(f"config written to {CONFIG_PATH}")
+    say(f"snapserver.conf written to {SNAPSERVER_CONF}")
+    say()
+    say("Next: floorfill start, then floorfill url for the address to send round.")
+    say(f"Phones will see an AirPlay{' and a Spotify Connect' if cfg['spotify'] else ''} "
+        f"device called \"{cfg['name']}\".")
+
+
+def ensure_initialised(cfg):
+    if not os.path.exists(SNAPSERVER_CONF):
+        fail("not set up yet; run: floorfill init")
+    if not snapweb_present():
+        fail("the listener page is missing; run: floorfill init")
+    validate(cfg)
+
+
+def cmd_run(_args):
+    cfg = load_config()
+    ensure_initialised(cfg)
+    snapserver = which("snapserver")
+    if not snapserver:
+        fail("snapserver is not installed; brew install snapcast")
+    argv = [snapserver, "-c", SNAPSERVER_CONF]
+    caffeinate = which("caffeinate") if DARWIN else None
+    if caffeinate:
+        # Keep the Mac from idle-sleeping while the server runs; the
+        # display may still sleep. A sleeping laptop is a silent office.
+        argv = [caffeinate, "-i"] + argv
+    sys.stdout.flush()
+    os.execv(argv[0], argv)
+
+
+def cmd_start(args):
+    cfg = load_config()
+    ensure_initialised(cfg)
+    if not DARWIN:
+        fail("start uses launchd and is macOS-only; run `floorfill run` under your own supervisor")
+    if args:
+        fail(f"start: unknown argument {args[0]!r}")
+    if launchd_loaded():
+        say("already running (LaunchAgent loaded); use restart to apply changes")
+        return
+    write_plist()
+    res = subprocess.run(
+        ["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST_PATH],
+        capture_output=True, text=True,
+    )
+    if res.returncode != 0:
+        fail("launchctl bootstrap failed: " + (res.stderr.strip() or res.stdout.strip()))
+    for _ in range(40):
+        if port_open(cfg["http_port"]):
+            break
+        time.sleep(0.25)
+    else:
+        say(f"started, but port {cfg['http_port']} is not answering yet; see floorfill logs")
+        return
+    say("running, and again after every login, until floorfill stop")
+    print_urls(cfg)
+
+
+def cmd_stop(_args):
+    if not DARWIN:
+        fail("stop is macOS-only; signal the `floorfill run` process you started")
+    if launchd_loaded():
+        subprocess.run(["launchctl", "bootout", launchd_target()], capture_output=True)
+        say("stopped")
+    else:
+        say("not running")
+    if os.path.exists(PLIST_PATH):
+        os.remove(PLIST_PATH)
+        say("LaunchAgent removed")
+
+
+def cmd_restart(args):
+    cmd_stop([])
+    time.sleep(0.5)
+    cmd_start(args)
+
+
+def print_urls(cfg):
+    for u in urls(cfg):
+        say(u)
+
+
+def urls(cfg):
+    out = [f"http://{local_hostname()}:{cfg['http_port']}"]
+    ip = local_ip()
+    if ip:
+        out.append(f"http://{ip}:{cfg['http_port']}")
+    return out
+
+
+def cmd_url(args):
+    cfg = load_config()
+    if "--json" in args:
+        print(json.dumps({"urls": urls(cfg), "hostname": local_hostname(), "ip": local_ip()}))
+    else:
+        print_urls(cfg)
+
+
+def cmd_status(args):
+    cfg = load_config()
+    state = rpc(cfg, "Server.GetStatus")
+    if state is None:
+        if "--json" in args:
+            print(json.dumps({"running": False}))
+            sys.exit(3)
+        fail(f"the server is not answering on port {cfg['control_port']}; run: floorfill start", 3)
+    if "--json" in args:
+        print(json.dumps(state, indent=2))
+        return
+    server = state.get("server", {})
+    streams = {s["id"]: s for s in server.get("streams", [])}
+    say(f"floorfill {VERSION}, snapserver up")
+    for u in urls(cfg):
+        say("  " + u)
+    say()
+    say("sources")
+    for sid, s in streams.items():
+        status = s.get("status", "?")
+        meta = (s.get("properties") or {}).get("metadata") or {}
+        line = f"  {sid:<12} {status}"
+        if status == "playing" and meta:
+            title = meta.get("title", "")
+            artist = ", ".join(meta.get("artist", [])) if isinstance(meta.get("artist"), list) else meta.get("artist", "")
+            album = meta.get("album", "")
+            line += "   " + " / ".join(x for x in (title, artist, album) if x)
+            line += "   cover art" if (meta.get("artUrl") or meta.get("artData")) else ""
+        say(line)
+    say()
+    listeners = []
+    for group in server.get("groups", []):
+        for client in group.get("clients", []):
+            if client.get("connected"):
+                host = client.get("host", {}).get("name") or client.get("host", {}).get("ip", "?")
+                latency = client.get("config", {}).get("latency", 0)
+                vol = client.get("config", {}).get("volume", {}).get("percent", "?")
+                listeners.append((host, group.get("stream_id", "?"), latency, vol))
+    say(f"listeners: {len(listeners)}")
+    for host, stream, latency, vol in listeners:
+        say(f"  {host:<28} on {stream:<12} latency {latency:>4} ms  volume {vol}%")
+
+
+def cmd_doctor(_args):
+    cfg = load_config()
+    ok = True
+
+    def check(cond, good, bad):
+        nonlocal ok
+        say(("  ok    " if cond else "  FAIL  ") + (good if cond else bad))
+        ok = ok and bool(cond)
+
+    say("programs")
+    paths, missing = resolve_programs(cfg)
+    for prog, path in paths.items():
+        check(True, f"{prog}: {path}", "")
+    for prog in missing:
+        check(False, "", f"{prog} missing; brew install {'snapcast' if prog == 'snapserver' else prog}")
+    if DARWIN:
+        check(which("caffeinate"), "caffeinate: keeps the Mac awake while serving",
+              "caffeinate missing; the Mac may sleep mid-set")
+
+    say("files")
+    check(os.path.exists(CONFIG_PATH), f"config: {CONFIG_PATH}", "no config; run floorfill init")
+    check(os.path.exists(SNAPSERVER_CONF), f"snapserver.conf: {SNAPSERVER_CONF}", "no snapserver.conf; run floorfill init")
+    check(snapweb_present(), f"listener page: {SNAPWEB_DIR}", "listener page missing; run floorfill init")
+
+    say("server")
+    running = port_open(cfg["http_port"])
+    check(running, f"port {cfg['http_port']} answers (listener page)", f"port {cfg['http_port']} closed; run floorfill start")
+    check(port_open(cfg["control_port"]), f"port {cfg['control_port']} answers (control)", f"port {cfg['control_port']} closed")
+    check(port_open(cfg["stream_port"]), f"port {cfg['stream_port']} answers (audio)", f"port {cfg['stream_port']} closed")
+    if cfg["airplay"]:
+        check(port_open(5000), "port 5000 answers (AirPlay)", "port 5000 closed; shairport-sync is not up yet (it starts with the server)")
+
+    say("network")
+    host = local_hostname()
+    ip = local_ip()
+    check(ip, f"LAN address {ip}", "no LAN address; is the Mac on a network?")
+    try:
+        resolved = socket.gethostbyname(host)
+        check(True, f"{host} resolves here to {resolved}", "")
+    except OSError:
+        check(False, "", f"{host} does not resolve here; colleagues may need the IP address instead")
+    if DARWIN:
+        fw = subprocess.run(
+            ["/usr/libexec/ApplicationFirewall/socketfilterfw", "--getglobalstate"],
+            capture_output=True, text=True,
+        ).stdout.strip()
+        if "enabled" in fw.lower() and "disabled" not in fw.lower():
+            say("  note  the macOS firewall is on; allow incoming connections for snapserver,")
+            say("        shairport-sync and librespot when macOS asks, or in System Settings")
+        else:
+            say("  ok    macOS firewall is off, or not blocking")
+    say("  note  office Wi-Fi with client isolation blocks device-to-device traffic;")
+    say("        if a colleague cannot open the page, that is the first thing to ask IT")
+    say()
+    say("everything looks fine" if ok else "something needs attention, see FAIL lines above")
+    sys.exit(0 if ok else 2)
+
+
+def cmd_set(args):
+    if len(args) != 2:
+        fail("usage: floorfill set KEY VALUE\nkeys: " + ", ".join(SETTABLE))
+    key, raw = args
+    if key not in SETTABLE:
+        fail(f"unknown key {key!r}; keys: " + ", ".join(SETTABLE))
+    typ = SETTABLE[key]
+    if typ is bool:
+        if raw.lower() in ("true", "on", "yes", "1"):
+            value = True
+        elif raw.lower() in ("false", "off", "no", "0"):
+            value = False
+        else:
+            fail(f"{key} wants true or false")
+    elif typ is int:
+        try:
+            value = int(raw)
+        except ValueError:
+            fail(f"{key} wants a whole number")
+    else:
+        value = raw
+    cfg = load_config()
+    cfg[key] = value
+    validate(cfg)
+    save_config(cfg)
+    paths, missing = resolve_programs(cfg)
+    if missing:
+        fail("saved, but missing: " + ", ".join(missing) + "; install and run floorfill init")
+    with open(SNAPSERVER_CONF, "w") as fh:
+        fh.write(render_conf(cfg, paths))
+    say(f"{key} = {json.dumps(value)}; run floorfill restart to apply")
+
+
+def cmd_config(_args):
+    cfg = load_config()
+    say(json.dumps(cfg, indent=2, sort_keys=True))
+    say()
+    say(f"config          {CONFIG_PATH}")
+    say(f"snapserver.conf {SNAPSERVER_CONF}")
+    say(f"listener page   {SNAPWEB_DIR}")
+    say(f"server state    {STATE_DIR}")
+    say(f"log             {LOG_PATH}")
+    if PLIST_PATH:
+        say(f"LaunchAgent     {PLIST_PATH}")
+
+
+def cmd_logs(args):
+    if not os.path.exists(LOG_PATH):
+        fail(f"no log yet at {LOG_PATH}")
+    tail = ["tail", "-n", "200"]
+    if "-f" in args:
+        tail.append("-f")
+    os.execvp("tail", tail + [LOG_PATH])
+
+
+def cmd_disarm(_args):
+    cmd_stop([])
+
+
+def cmd_version(_args):
+    say(f"floorfill {VERSION}")
+
+
+def cmd_help(_args):
+    say(__doc__.strip())
+
+
+COMMANDS = {
+    "init": cmd_init,
+    "start": cmd_start,
+    "stop": cmd_stop,
+    "restart": cmd_restart,
+    "run": cmd_run,
+    "status": cmd_status,
+    "url": cmd_url,
+    "doctor": cmd_doctor,
+    "set": cmd_set,
+    "config": cmd_config,
+    "logs": cmd_logs,
+    "disarm": cmd_disarm,
+    "version": cmd_version,
+    "help": cmd_help,
+    "--help": cmd_help,
+    "-h": cmd_help,
+    "--version": cmd_version,
+}
+
+
+def main(argv):
+    if not argv:
+        cmd_help([])
+        return
+    cmd = COMMANDS.get(argv[0])
+    if cmd is None:
+        fail(f"unknown command {argv[0]!r}; try: floorfill help", 2)
+    cmd(argv[1:])
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])

@@ -1,0 +1,47 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Python syntax
+        run: python3 -m py_compile floorfill
+      - name: Shell syntax
+        run: |
+          bash -n install.sh
+          bash -n uninstall.sh
+      - name: shellcheck
+        run: shellcheck install.sh uninstall.sh
+      - name: Generated snapserver.conf renders
+        run: |
+          python3 - <<'EOF'
+          import importlib.util, sys
+          spec = importlib.util.spec_from_loader("floorfill", loader=None)
+          mod = importlib.util.module_from_spec(spec)
+          with open("floorfill") as fh:
+              code = fh.read()
+          code = code.replace('if __name__ == "__main__":', 'if False:')
+          exec(compile(code, "floorfill", "exec"), mod.__dict__)
+          cfg = dict(mod.DEFAULTS)
+          mod.validate(cfg)
+          conf = mod.render_conf(cfg, {"shairport-sync": "/opt/homebrew/bin/shairport-sync",
+                                       "librespot": "/opt/homebrew/bin/librespot"})
+          for needle in ("airplay:///opt/homebrew/bin/shairport-sync", "librespot:///opt/homebrew/bin/librespot",
+                         "meta:///AirPlay/Spotify?name=Floorfill", "doc_root =", "codec = flac"):
+              assert needle in conf, needle
+          print(conf)
+          EOF
+      - name: Listener page checksum matches the pinned release
+        run: |
+          url=$(python3 -c "exec(open('floorfill').read().split('HOME =')[0]); print(SNAPWEB_URL)")
+          want=$(python3 -c "exec(open('floorfill').read().split('HOME =')[0]); print(SNAPWEB_SHA256)")
+          curl -sL -o snapweb.zip "$url"
+          got=$(sha256sum snapweb.zip | cut -d' ' -f1)
+          test "$got" = "$want" || { echo "checksum drift: $got != $want"; exit 1; }
+      - name: Marketing page is well formed
+        run: python3 -c "import html.parser,sys; p=html.parser.HTMLParser(); p.feed(open('docs/index.html').read()); print('ok')"
