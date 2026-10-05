@@ -10,7 +10,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📻</text></svg>">
 <title>BoomerBlaster</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Michroma&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik+Dirt&display=swap">
 <script>document.documentElement.classList.add("js");</script>
 <style>
   /* Layout: Apple product page. Black and off-white full-bleed bands, a 980px column, 28px radii, system type. */
@@ -28,7 +28,7 @@
     --blue-hover: #0077ed;
     --link-dark: #2997ff;
     --link-light: #0066cc;
-    --sleeve: "Michroma", "Eurostile", "Bank Gothic", "Arial Black", sans-serif; /* 1999 sleeve type; used twice */
+    --sleeve: "Rubik Dirt", "Impact", "Arial Black", sans-serif; /* 1999 flyer type, worn ink; used twice */
     --radius: 28px;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -75,8 +75,9 @@
   .copy strong { font-weight: 600; }
   .dark-s .copy strong { color: #f5f5f7; }
   .light-s .copy strong { color: var(--dark); }
-  .sleeve { font-family: var(--sleeve); font-weight: 400; text-transform: uppercase; letter-spacing: .08em; text-wrap: balance; }
-  .claim { font-size: clamp(18px, 3vw, 36px); line-height: 1.3; margin-top: 22px; color: #f5f5f7; }
+  .sleeve { font-family: var(--sleeve); font-weight: 400; text-transform: uppercase; letter-spacing: .02em; text-wrap: balance; }
+  .claim { font-size: clamp(26px, 4.4vw, 54px); line-height: 1.1; margin-top: 22px; color: #f5f5f7; transform: rotate(-1.5deg); }
+  .js .claim.rv.in { transform: rotate(-1.5deg); }
   .more { color: var(--link-dark); font-size: 21px; line-height: 1.19; display: inline-flex; align-items: center; gap: .2em; }
   .more::after { content: "\203A"; font-size: 1.15em; line-height: 1; }
   .more:hover { text-decoration: underline; }
@@ -117,7 +118,7 @@
   .story .copy + .copy { margin-top: 26px; }
   .story .copy em { font-style: normal; letter-spacing: .3em; margin-right: -.3em; color: #f5f5f7; }
   .story .copy strong { color: #f5f5f7; font-weight: 700; font-size: 1.3em; }
-  .story .pull { font-size: clamp(15px, 2.1vw, 24px); line-height: 1.5; margin-top: 44px; color: #f5f5f7; }
+  .story .pull { font-size: clamp(20px, 2.8vw, 34px); line-height: 1.3; margin-top: 44px; color: #f5f5f7; }
 
   /* then / now */
   .thennow { display: grid; gap: 20px; margin-top: 56px; overflow: clip; border-radius: var(--radius); }
