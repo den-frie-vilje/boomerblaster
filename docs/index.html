@@ -109,15 +109,19 @@
   .hero .headline { margin-top: 10px; }
   .hero .links { display: flex; gap: 34px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
   /* the stage: the product pins for a few screen heights while the headline arrives over it */
-  .stage { height: 260vh; margin-top: 28px; --p: 1; --pe: 1; --fitz: 0; }
+  .stage { height: 260vh; margin-top: 28px; --p: 1; --pe: 1; --fit0: 0; --fitz: 0; }
   .pin { position: sticky; top: 52px; height: calc(100vh - 52px); height: calc(100dvh - 52px); overflow: hidden; background: #000; }
   /* The product starts fully contained — the whole headphones visible on
      black, never cropped — and the scroll zooms it in. The zoom is anchored
      to the bottom (transform-origin and object-position) so the bottom edge
      never leaves the frame; on viewports wider than the image, growth spills
-     off the top, which is allowed once zoomed. --fitz is how much extra scale
-     reaches an edge-to-edge fill, measured per viewport in JS. */
-  .product-wrap { position: absolute; inset: 0; transform-origin: 50% 100%; transform: scale(calc(1 + var(--pe) * (var(--fitz) + .08))); }
+     off the top, which is allowed once zoomed. On a narrow (phone) viewport
+     the contained image is a thin band and a fill would mean a fourfold zoom,
+     so there it starts already spilling off the sides, up to a point, and the
+     zoom stops short of a fill, leaving black above. --fit0 is that starting
+     bleed, --fitz the scroll zoom on top of it; both measured per viewport in
+     JS. */
+  .product-wrap { position: absolute; inset: 0; transform-origin: 50% 100%; transform: scale(calc(1 + var(--fit0) + var(--pe) * (var(--fitz) + .08))); }
   .product { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%; transform-origin: 50% 100%; }
   .js .product { opacity: 0; transform: scale(.82); animation: emerge 2.2s cubic-bezier(.16, .8, .24, 1) .5s forwards; }
   @keyframes emerge { 0% { opacity: 0; transform: scale(.82); filter: brightness(0); } 45% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
@@ -686,9 +690,12 @@ boomerblaster url</pre>
     stage.style.setProperty("--pe", "0");
     var boomed = [false, false], lastP = -1;
     var ticking = false;
-    // How much extra scale takes the contained image to an edge-to-edge
-    // fill at this viewport: the ratio of the cover scale to the contain
-    // scale. 0 when the frame already matches the image's shape.
+    // The scale that takes the contained image to an edge-to-edge fill is
+    // cover/contain: about 1.1 on a laptop, nearly 4 on a phone held upright.
+    // Where it is large, start with the image spilling off the sides (at most
+    // 1.6x the frame width) and zoom at most 1.5x further, so the picture is
+    // never blown up to a sliver of itself; where it is small, start
+    // contained and zoom to the fill as before.
     function setFit() {
       var pin = stage.querySelector(".pin");
       var img = stage.querySelector(".product");
@@ -698,7 +705,11 @@ boomerblaster url</pre>
       if (!bw || !bh) return;
       var contain = Math.min(bw / iw, bh / ih);
       var cover = Math.max(bw / iw, bh / ih);
-      stage.style.setProperty("--fitz", contain > 0 ? (cover / contain - 1).toFixed(4) : "0");
+      var fill = contain > 0 ? cover / contain : 1;
+      var base = Math.min(1.6, Math.max(1, fill - 1.2));
+      var end = Math.min(fill, base * 1.5);
+      stage.style.setProperty("--fit0", (base - 1).toFixed(4));
+      stage.style.setProperty("--fitz", (end - base).toFixed(4));
     }
     setFit();
     var pimg = stage.querySelector(".product");
