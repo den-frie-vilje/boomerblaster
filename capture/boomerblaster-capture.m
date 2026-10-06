@@ -523,6 +523,7 @@ typedef struct {
     uint64_t render_errors;
     // process tap mode (macOS 14.2+): capture one application's audio
     char tap_spec[256];         // "pid:N", a bundle id, or part of a name; empty = use the device
+    int tap_mute;               // silence the tapped app on this Mac (it is heard through the stream)
     const char *tap_file;       // where the spec is read from, re-read when it changes
     time_t tap_file_mtime;
     AudioObjectID preset_dev;   // the aggregate device carrying the tap; device_start uses it instead of the name
@@ -704,7 +705,7 @@ static AudioObjectID tap_create(device_t *d, procinfo_t **procs, int n) {
     CATapDescription *desc = [[CATapDescription alloc] initStereoMixdownOfProcesses:objs];
     desc.name = @"BoomerBlaster";
     desc.privateTap = YES;
-    desc.muteBehavior = CATapUnmuted;
+    desc.muteBehavior = d->tap_mute ? CATapMuted : CATapUnmuted;
     AudioObjectID tap = 0;
     OSStatus st = AudioHardwareCreateProcessTap(desc, &tap);
     if (st != noErr) { logmsg("cannot create a process tap (%d)", (int)st); return 0; }
@@ -763,17 +764,27 @@ static OSStatus procs_listener(AudioObjectID obj, UInt32 n, const AudioObjectPro
     return noErr;
 }
 
-// Re-reads the tap file when it changed; returns 1 when the spec changed.
+static void trim(char *s) {
+    size_t len = strlen(s);
+    while (len && (s[len - 1] == '\n' || s[len - 1] == '\r' || s[len - 1] == ' ')) s[--len] = 0;
+    size_t lead = 0;
+    while (s[lead] == ' ') lead++;
+    if (lead) memmove(s, s + lead, len - lead + 1);
+}
+
+// Re-reads the tap file when it changed; returns 1 when the spec or the mute
+// flag changed. Line 1: the app; line 2, optional: "mute".
 static int tap_file_poll(device_t *d) {
     if (!d->tap_file) return 0;
     struct stat st;
-    char spec[256] = "";
+    char spec[256] = "", flag[64] = "";
     if (stat(d->tap_file, &st) == 0) {
         if (st.st_mtime == d->tap_file_mtime) return 0;
         d->tap_file_mtime = st.st_mtime;
         FILE *fh = fopen(d->tap_file, "r");
         if (fh) {
             if (!fgets(spec, sizeof spec, fh)) spec[0] = 0;
+            if (!fgets(flag, sizeof flag, fh)) flag[0] = 0;
             fclose(fh);
         }
     } else if (d->tap_file_mtime == 0 && d->tap_spec[0] == 0) {
@@ -781,13 +792,12 @@ static int tap_file_poll(device_t *d) {
     } else {
         d->tap_file_mtime = 0;
     }
-    // trim
-    size_t len = strlen(spec);
-    while (len && (spec[len - 1] == '\n' || spec[len - 1] == '\r' || spec[len - 1] == ' ')) spec[--len] = 0;
-    char *start = spec;
-    while (*start == ' ') start++;
-    if (strcmp(start, d->tap_spec) == 0) return 0;
-    snprintf(d->tap_spec, sizeof d->tap_spec, "%s", start);
+    trim(spec);
+    trim(flag);
+    int mute = strcasecmp(flag, "mute") == 0;
+    if (strcmp(spec, d->tap_spec) == 0 && mute == d->tap_mute) return 0;
+    snprintf(d->tap_spec, sizeof d->tap_spec, "%s", spec);
+    d->tap_mute = mute;
     return 1;
 }
 
@@ -813,7 +823,7 @@ static int tap_refresh(device_t *d, int force) {
             char who[512] = "";
             for (int i = 0; i < m && strlen(who) < 400; i++)
                 snprintf(who + strlen(who), sizeof who - strlen(who), "%s%s (pid %d)", i ? ", " : "", matches[i]->name, (int)matches[i]->pid);
-            logmsg("tapping %s", who);
+            logmsg("tapping %s%s", who, d->tap_mute ? ", muted on this Mac" : "");
         }
     }
     free(procs);
@@ -1386,7 +1396,8 @@ static int writer_tick(writer_t *w, input_t *in, uint64_t now, float *fbuf, int1
 
 static void usage(void) {
     fputs("usage: boomerblaster-capture [--device NAME] [--tap APP | --tap-file PATH] [--rate HZ] [--lead-ms N] [--buffer-ms N] [--status]\n"
-          "       APP is pid:N, a bundle id, or part of an application's name; the tap file holds the same, empty = use the device\n"
+          "       APP is pid:N, a bundle id, or part of an application's name; the tap file holds the same, empty = use the device,\n"
+          "       with \"mute\" on a second line (or --tap-mute) to silence the app on this Mac while it is tapped\n"
           "       boomerblaster-capture --list-apps | --check-tap\n"
           "       boomerblaster-capture --sim RATE[,ppm=P,ts_ppm=T,jitter_ms=J,buffer=N,tone=HZ,stall=AT:DUR] ...\n"
           "       boomerblaster-capture --list | --check [--device NAME] | --tone-to NAME [--tone-hz HZ]\n"
@@ -1430,7 +1441,7 @@ int main(int argc, char **argv) {
         double out_rate = 44100, lead_ms = 300, buffer_ms = 60, tone_hz = 1000, status_ms = 1000;
         int status = 0, do_list = 0, do_check = 0;
         const char *tone_to = NULL, *sim_spec = NULL, *tap_spec = NULL, *tap_file = NULL;
-        int do_list_apps = 0, do_check_tap = 0;
+        int do_list_apps = 0, do_check_tap = 0, tap_mute = 0;
         for (int i = 1; i < argc; i++) {
             const char *a = argv[i];
             const char *v = i + 1 < argc ? argv[i + 1] : NULL;
@@ -1448,6 +1459,7 @@ int main(int argc, char **argv) {
             else if (strcmp(a, "--check-tap") == 0) do_check_tap = 1;
             else if (strcmp(a, "--tap") == 0 && v) { tap_spec = v; i++; }
             else if (strcmp(a, "--tap-file") == 0 && v) { tap_file = v; i++; }
+            else if (strcmp(a, "--tap-mute") == 0) tap_mute = 1;
             else if (strcmp(a, "--check") == 0) do_check = 1;
             else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) { usage(); return 0; }
             else { usage(); return 64; }
@@ -1508,6 +1520,7 @@ int main(int argc, char **argv) {
             dev.in = &in;
             dev.tap_file = tap_file;
             if (tap_spec) snprintf(dev.tap_spec, sizeof dev.tap_spec, "%s", tap_spec);
+            dev.tap_mute = tap_mute;
             input_reset(&in);
             logmsg("output %.0f Hz, lead %.0f ms, buffer %.0f ms; opening %s%s%s", out_rate, lead_ms, buffer_ms,
                    tap_spec ? "a tap of \"" : "\"", tap_spec ? tap_spec : dev.name, tap_file ? "\" (following the tap file)" : "\"");

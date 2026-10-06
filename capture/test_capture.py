@@ -579,6 +579,42 @@ class ProcessTap(unittest.TestCase):
         self.assertLess(abs(ppm(f_late, 1500)), 20, f"after the switch: {f_late:.3f} Hz")
         self.assertLess(pacing(run)[0], 0.040)
 
+    def test_muted_tap_silences_the_app_on_this_mac(self):
+        # "mute" on the tap file's second line: the app's sound still reaches
+        # the tap but no longer the device it plays to, so the DJ can listen
+        # through the page, in sync, without hearing the app twice.
+        tone = self.tone(1000)
+        tmp = tempfile.mkdtemp(prefix="bbtap-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tap_file = os.path.join(tmp, "app")
+        with open(tap_file, "w") as fh:
+            fh.write(f"pid:{tone.pid}\nmute\n")
+        # What BlackHole (the device the tone plays into) carries meanwhile.
+        device_out = open(os.path.join(tmp, "device.raw"), "wb")
+        device = subprocess.Popen([BIN, "--device", "BlackHole 2ch"], stdout=device_out, stderr=subprocess.DEVNULL)
+        try:
+            time.sleep(1.0)
+            run = Run(["--tap-file", tap_file, "--device", "no such device", "--status"], 10).go()
+        finally:
+            self._stop(device)
+            device_out.close()
+        skip_if_host_stalled(self, run)
+        left = run.left()
+        tones = tone_regions(left)
+        self.assertEqual(len(tones), 1, f"the tap should carry the tone: {tones}; log: {run.log}")
+        a, b = tones[0]
+        f = frequency(left, max(a, 4 * RATE), b)
+        self.assertLess(abs(ppm(f, 1000)), 20)
+        with open(os.path.join(tmp, "device.raw"), "rb") as fh:
+            data = fh.read()
+        dev = array.array("h")
+        dev.frombytes(data[: len(data) // 4 * 4])
+        dev_left = dev[0::2]
+        # Skip the first 3 s (before the tap attached the tone was audible).
+        tail = dev_left[3 * RATE:]
+        self.assertGreater(len(tail), 4 * RATE, "device capture too short")
+        self.assertLess(max(abs(x) for x in tail), 50, "the muted app was still audible on the device")
+
     def test_tap_waits_for_an_app_that_is_not_running_yet(self):
         # Nothing matches at first: silence, no error, no exit. When the app
         # appears the tap attaches by itself.

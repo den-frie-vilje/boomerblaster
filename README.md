@@ -169,8 +169,11 @@ keeps playing to your headphones, and notifications stay private.
 `boomerblaster capture-app "djay Pro"` (part of the name, or a bundle id)
 switches within a second, `capture-app device` goes back to the virtual
 device, and `boomerblaster url --admin` prints the address of a picker
-page that does the same from a phone. The first time, macOS asks for
-**System Audio Recording**; allow it.
+page that does the same from a phone. Add `--mute` (or tick the box on the
+page) to silence the app on the Mac itself while it plays out: then you
+listen on the page like everyone else, in sync, instead of hearing the app
+a second ahead. The first time, macOS asks for **System Audio
+Recording**; allow it.
 
 ## What to expect
 
@@ -186,6 +189,10 @@ page that does the same from a phone. The first time, macOS asks for
   700 kbit/s. Twenty listeners over Wi-Fi is comfortable; forty wants a cable.
 - **Sleep.** While the server runs, the Mac is kept from idle sleep. Closing
   the lid still ends the set.
+- **Pockets.** On an iPhone or iPad the page keeps playing with the screen
+  locked, shows the track on the lock screen, and ignores the ringer switch:
+  it plays through a media element, which iOS treats as music, not as a web
+  page's sound.
 
 ## Settings
 
@@ -214,6 +221,7 @@ BoomerBlaster writes and reads these files, and nothing else:
 | `sysaudio` | `false` | broadcast what this Mac plays into a virtual audio device |
 | `sysaudio_device` | `"BlackHole 2ch"` | the input device to capture when `sysaudio` is on |
 | `sysaudio_app` | `""` | capture this application instead (macOS 14.2+); `capture-app` sets it |
+| `sysaudio_app_mute` | `false` | silence the captured app on this Mac; `capture-app --mute` sets it |
 
 Change any of them from the command line, for example
 `boomerblaster set codec opus` or `boomerblaster set spotify false`, then
@@ -235,7 +243,7 @@ config          print settings and file locations
 logs [-f]       show the server log
 disarm          same as stop; run before brew uninstall
 cast [on|off]   on: cast AirPlay from this Mac (receiver drops to classic AirPlay); off: AirPlay 2 again
-capture-app [NAME|device]  which application's sound the System source carries; no restart
+capture-app [NAME|device] [--mute]  which application's sound the System source carries; no restart
 version         print the version
 ```
 

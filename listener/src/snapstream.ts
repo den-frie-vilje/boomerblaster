@@ -4,7 +4,7 @@
 
 import Flac from 'libflacjs/dist/libflac.js'
 import { getPersistentValue } from './config.ts'
-import { AudioContext, IAudioBuffer, IAudioContext, IAudioBufferSourceNode, IGainNode } from 'standardized-audio-context'
+import { AudioContext, IAudioBuffer, IAudioContext, IAudioBufferSourceNode, IGainNode, IMediaStreamAudioDestinationNode } from 'standardized-audio-context'
 import { OpusDecoder as WasmOpusDecoder } from "opus-decoder";
 
 
@@ -875,6 +875,13 @@ class SnapStream {
 
     public resume() {
         this.ctx.resume();
+        if (this.audioEl && this.audioEl.paused) this.audioEl.play().catch(() => { });
+    }
+
+    // iPhones and iPads (which call themselves MacIntel with touch).
+    private static needsMediaElement(): boolean {
+        const p = navigator.platform || '';
+        return /iP(hone|ad|od)/.test(p) || (p === 'MacIntel' && navigator.maxTouchPoints > 1);
     }
 
     private setupAudioContext(): boolean {
@@ -890,7 +897,25 @@ class SnapStream {
 
             this.ctx = new AudioContextPatched(options);
             this.gainNode = this.ctx.createGain();
-            this.gainNode.connect(this.ctx.destination);
+            if (SnapStream.needsMediaElement()) {
+                // iOS keeps a page's sound going under the lock screen, and past
+                // the ringer switch, only for a media element. Play the graph's
+                // output through one instead of the context's destination. The
+                // element is created once, inside the tap that started us, and
+                // re-pointed when the context is rebuilt for another sample rate.
+                this.msDest = this.ctx.createMediaStreamDestination();
+                this.gainNode.connect(this.msDest);
+                if (!this.audioEl) {
+                    this.audioEl = document.createElement('audio');
+                    this.audioEl.setAttribute('playsinline', '');
+                    this.audioEl.style.display = 'none';
+                    document.body.appendChild(this.audioEl);
+                }
+                this.audioEl.srcObject = this.msDest.stream;
+                this.audioEl.play().catch((e) => console.warn('media element did not start', e));
+            } else {
+                this.gainNode.connect(this.ctx.destination);
+            }
         } else {
             // Web Audio API is not supported
             return false;
@@ -1023,6 +1048,7 @@ class SnapStream {
         // if (this.ctx) {
         //     this.ctx.close();
         // }
+        if (this.audioEl) this.audioEl.pause();
         this.ctx.suspend();
         while (this.audioBuffers.length > 0) {
             const buffer = this.audioBuffers.pop();
@@ -1084,6 +1110,8 @@ class SnapStream {
     stream: AudioStream | undefined;
     ctx!: IAudioContextPatched; // | undefined;
     gainNode!: IGainNode<IAudioContext>;
+    msDest?: IMediaStreamAudioDestinationNode<IAudioContext>;
+    audioEl?: HTMLAudioElement;
     serverSettings: ServerSettingsMessage | undefined;
     decoder: Decoder | undefined;
     sampleFormat: SampleFormat | undefined;

@@ -71,6 +71,21 @@ class Picker(unittest.TestCase):
         with open(self.tap_file) as fh:
             self.assertEqual(fh.read().strip(), "", "an empty choice means: back to the virtual device")
 
+    def test_mute_checkbox_writes_the_second_line(self):
+        status, _, html = self.request("GET", "/")
+        self.assertIn('name="mute"', html)
+        status, _, _ = self.request("POST", "/select", "app=com.algoriddim.djay-iphone-free&mute=on")
+        self.assertIn(status, (200, 303))
+        with open(self.tap_file) as fh:
+            self.assertEqual(fh.read().split("\n")[:2], ["com.algoriddim.djay-iphone-free", "mute"])
+        status, _, html = self.request("GET", "/")
+        self.assertIn('name="mute" checked', html)
+        status, _, data = self.request("GET", "/apps.json")
+        self.assertTrue(json.loads(data)["mute"])
+        self.request("POST", "/select", "app=com.algoriddim.djay-iphone-free")
+        with open(self.tap_file) as fh:
+            self.assertEqual(fh.read().strip(), "com.algoriddim.djay-iphone-free")
+
     def test_rejects_junk(self):
         status, _, _ = self.request("POST", "/select", "app=../../etc/passwd")
         self.assertEqual(status, 400)

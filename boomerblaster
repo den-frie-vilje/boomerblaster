@@ -54,11 +54,13 @@ Commands:
            AirPlay-2-only apps no longer list it), nqptp stops and the
            server restarts. off: back to AirPlay 2. No argument: which
            way it is set.
-  capture-app [NAME|device]
+  capture-app [NAME|device] [--mute|--unmute]
            which application's sound the System source carries: part of
            an app's name or its bundle id, or "device" for the virtual
-           device. Changes while running. No argument: what it is now,
-           the apps making sound, and the picker page's address.
+           device. --mute silences the app on this Mac while it is
+           captured, so you listen on the page like everyone else.
+           Changes while running. No argument: what it is now, the apps
+           making sound, and the picker page's address.
   version  print the version.
 
 Files: ~/.config/boomerblaster/config.json           your settings
@@ -159,6 +161,9 @@ DEFAULTS = {
     # bundle id, part of an app's name, or "" for the device. Needs macOS
     # 14.2. `capture-app` and the picker page change it while running.
     "sysaudio_app": "",
+    # With an app captured: silence it on this Mac, so the DJ hears it
+    # through the listener page, in sync, and not twice.
+    "sysaudio_app_mute": False,
 }
 SETTABLE = {
     "name": str,
@@ -174,6 +179,7 @@ SETTABLE = {
     "sysaudio": bool,
     "sysaudio_device": str,
     "sysaudio_app": str,
+    "sysaudio_app_mute": bool,
 }
 # The three the listener page can decode; snapserver also knows ogg,
 # which browsers would receive and fail to play.
@@ -699,15 +705,29 @@ def write_tap_file(cfg):
     os.makedirs(CONFIG_DIR, exist_ok=True)
     with open(TAP_FILE, "w") as fh:
         fh.write(cfg.get("sysaudio_app", "") + "\n")
+        if cfg.get("sysaudio_app") and cfg.get("sysaudio_app_mute"):
+            fh.write("mute\n")
 
 
 def cmd_capture_app(args):
     """capture-app [NAME|device]: which application's sound the System
     source carries. Takes effect within a second, no restart."""
     cfg = load_config()
+    mute_flags = {"--mute": True, "--unmute": False}
+    for flag, value in mute_flags.items():
+        if flag in args:
+            cfg["sysaudio_app_mute"] = value
+            args = [a for a in args if a != flag]
+    if not args and any(f in sys.argv for f in mute_flags):
+        validate(cfg)
+        save_config(cfg)
+        write_tap_file(cfg)
+        say(f"the captured app is {'silenced on this Mac' if cfg['sysaudio_app_mute'] else 'audible on this Mac'}")
+        return
     if not args:
         current = cfg.get("sysaudio_app", "")
-        say(f"capturing {current!r}" if current else f"capturing the device \"{cfg['sysaudio_device']}\"")
+        say((f"capturing {current!r}" + (", silenced on this Mac" if cfg.get("sysaudio_app_mute") else ""))
+            if current else f"capturing the device \"{cfg['sysaudio_device']}\"")
         helper = capture_helper()
         if helper:
             res = subprocess.run([helper, "--list-apps"], capture_output=True, text=True)
@@ -735,7 +755,8 @@ def cmd_capture_app(args):
     if not cfg["sysaudio"]:
         say(f"saved; the System source is off, turn it on with: boomerblaster set sysaudio true")
     elif value:
-        say(f"capturing {value!r}; the capture follows within a second (needs macOS 14.2)")
+        say(f"capturing {value!r}{', silenced on this Mac' if cfg.get('sysaudio_app_mute') else ''}; "
+            "the capture follows within a second (needs macOS 14.2)")
     else:
         say(f"capturing the device \"{cfg['sysaudio_device']}\" again")
 

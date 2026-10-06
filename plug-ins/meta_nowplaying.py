@@ -271,12 +271,14 @@ PICKER_PAGE = """<!doctype html>
   label {{ display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid #333; cursor: pointer; }}
   label small {{ color: #a1a1a6; margin-left: auto; text-align: right; }}
   .playing {{ color: #30d158; }}
+  label.mute {{ margin-top: 10px; border-top: 1px solid #333; color: #d2d2d7; }}
   button {{ margin-top: 18px; font: inherit; padding: 10px 18px; border-radius: 10px; border: 0; background: #0a84ff; color: #fff; }}
 </style>
 <h1>Which app plays out</h1>
 <p>The sound of one application goes to the listeners; everything else on this Mac stays private. Apps making sound right now are marked.</p>
 <form method="post" action="select">
 {rows}
+<label class="mute"><input type="checkbox" name="mute"{mute_checked}> Silence the app on this Mac while it plays out, so you can listen on the page like everyone else</label>
 <button>Use this one</button>
 </form>
 <script>
@@ -314,11 +316,21 @@ def valid_app_choice(value):
 
 
 def read_tap_file(path):
+    """(app, mute): line 1 names the app, line 2 may say "mute"."""
     try:
         with open(path) as fh:
-            return fh.read().strip()
+            lines = [l.strip() for l in fh.read().split("\n")]
     except OSError:
-        return ""
+        return "", False
+    app = lines[0] if lines else ""
+    mute = len(lines) > 1 and lines[1].lower() == "mute"
+    return app, mute
+
+
+def write_tap_file(path, app, mute):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "w") as fh:
+        fh.write(app + "\n" + ("mute\n" if mute else ""))
 
 
 def picker_server(address, list_apps, tap_file):
@@ -346,11 +358,12 @@ def picker_server(address, list_apps, tap_file):
             except Exception as exc:  # the helper may be missing
                 log(f"picker: cannot list apps: {exc}")
                 apps = []
-            current = read_tap_file(tap_file)
+            current, mute = read_tap_file(tap_file)
             if path in ("/", "/index.html"):
-                self._send(200, "text/html; charset=utf-8", PICKER_PAGE.format(rows=picker_rows(apps, current)))
+                self._send(200, "text/html; charset=utf-8",
+                           PICKER_PAGE.format(rows=picker_rows(apps, current), mute_checked=" checked" if mute else ""))
             elif path == "/apps.json":
-                self._send(200, "application/json", json.dumps({"apps": apps, "current": current}))
+                self._send(200, "application/json", json.dumps({"apps": apps, "current": current, "mute": mute}))
             else:
                 self._send(404, "text/plain", "not found")
 
@@ -364,10 +377,9 @@ def picker_server(address, list_apps, tap_file):
             value = (form.get("app") or [""])[0].strip()
             if not valid_app_choice(value):
                 return self._send(400, "text/plain", "not an application")
-            os.makedirs(os.path.dirname(tap_file) or ".", exist_ok=True)
-            with open(tap_file, "w") as fh:
-                fh.write(value + "\n")
-            log(f"picker: capture set to {value or 'the virtual device'}")
+            mute = bool(form.get("mute")) and value != ""
+            write_tap_file(tap_file, value, mute)
+            log(f"picker: capture set to {value or 'the virtual device'}{' (muted here)' if mute else ''}")
             self._send(303, "text/plain", "", {"Location": "/"})
 
     http.server.ThreadingHTTPServer.allow_reuse_address = True
