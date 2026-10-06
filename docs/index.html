@@ -229,6 +229,11 @@
   .tile.photo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: center 30%; }
   .tile.photo .over { position: relative; padding: 160px 36px 40px; background: linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.55) 45%, rgba(0,0,0,0) 100%); color: #fff; }
   .tile.photo .over .eyebrow { color: rgba(255,255,255,.7); }
+  .tile.family { padding: 0; overflow: hidden; background: #000; color: #f5f5f7; min-height: 0; }
+  .tile.family img { width: 100%; display: block; aspect-ratio: 2; object-fit: cover; }
+  .tile.family .cap { padding: 32px 36px 40px; }
+  .tile.family .cap .eyebrow { color: var(--grey); }
+  .tile.family .cap p:not(.eyebrow) { color: var(--grey); }
   .tile.photo .over p { color: rgba(255,255,255,.85); }
 
   /* generations */
@@ -470,7 +475,10 @@
     <div class="tiles">
       <div class="tile rv"><p class="eyebrow">AirPlay</p><h3>From any iPhone, iPad or Mac.</h3><p>Music, Spotify, Tidal, YouTube, podcasts. Anything with an AirPlay button. Title, artist, album and the artwork come along for the ride.</p></div>
       <div class="tile rv" style="--d:.1s"><p class="eyebrow">Spotify Connect</p><h3>From any phone with Spotify.</h3><p>BoomerBlaster appears in Spotify's device list like a speaker would. Android welcome. Premium required, because Spotify says so.<sup>5</sup></p></div>
-      <div class="tile photo span2 rv" style="--d:.16s"><img src="img/floor.jpg" alt="" loading="lazy"><div class="over"><p class="eyebrow">Listeners</p><h3>A web page. Nothing to install.</h3><p>The most compatible app we have ever shipped. Works on the laptop IT gave you and the phone IT doesn't know about.</p></div></div>
+      <div class="tile family span2 rv" style="--d:.16s">
+        <img src="img/listener.jpg" width="1800" height="900" alt="The listener page on a desktop display, a laptop and a phone, lined up on black, all playing Low Tide (Office Edit)." loading="lazy">
+        <div class="cap"><p class="eyebrow">Listeners</p><h3>A web page. Nothing to install.</h3><p>The most compatible app we have ever shipped. Works on the display at the desk, the laptop IT gave you and the phone IT doesn't know about.</p></div>
+      </div>
     </div>
   </div>
 </section>
