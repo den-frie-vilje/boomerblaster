@@ -7,7 +7,11 @@
 <meta property="og:title" content="BoomerBlaster">
 <meta property="og:description" content="Turn it up. Nobody will know. Available now on brew.">
 <meta property="og:image" content="https://den-frie-vilje.github.io/boomerblaster/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="BoomerBlaster. Turn it up. Nobody will know.">
 <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://den-frie-vilje.github.io/boomerblaster/og.jpg">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📻</text></svg>">
 <title>BoomerBlaster</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik+Dirt&display=swap">
@@ -100,14 +104,15 @@
   .hero .availability { font-size: 17px; color: var(--grey); margin-top: 18px; }
   .hero .headline { margin-top: 10px; }
   .hero .links { display: flex; gap: 34px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
-  .hero-media { margin-top: 56px; overflow: hidden; }
-  .hero-media .frame { overflow: hidden; }
-  .hero-media img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; transform-origin: center; }
-  @media (min-width: 1240px) { .hero-media .frame { border-radius: var(--radius); } .hero-media .wide { padding: 0; } }
+  .hero-product { margin: 24px auto 0; max-width: 1200px; overflow: hidden; }
+  .hero-product img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; transform-origin: 50% 70%; }
+  .js .hero-product img { opacity: 0; transform: scale(.78) translateY(6%); animation: emerge 2.4s cubic-bezier(.16, .8, .24, 1) .55s forwards; }
+  @keyframes emerge { 0% { opacity: 0; transform: scale(.78) translateY(6%); filter: brightness(0); } 40% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
+  .js .hero-product img.settled { opacity: 1; transform: none; filter: none; animation: none; }
   @supports (animation-timeline: view()) {
-    .js .hero-media img { animation: heroSettle linear both; animation-timeline: view(); animation-range: entry 0% entry 100%; }
+    .js .hero-product img.settled { animation: heroDrift linear both; animation-timeline: view(); animation-range: exit 0% exit 100%; }
   }
-  @keyframes heroSettle { from { transform: scale(1.08); } to { transform: scale(1); } }
+  @keyframes heroDrift { from { transform: scale(1); } to { transform: scale(1.06); } }
 
   /* story */
   .story { max-width: 720px; }
@@ -160,7 +165,7 @@
   .screen .bd::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.25); }
   .screen > :not(.bd) { position: relative; }
   .screen .cover { width: 100%; aspect-ratio: 1; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 50px -16px rgba(0,0,0,.9); background: #223; }
-  .screen canvas { width: 100%; height: 100%; display: block; }
+  .screen .cover img { width: 100%; height: 100%; display: block; object-fit: cover; }
   .screen .meta { text-align: center; }
   .screen .title { font-size: 17px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
   .screen .artist { font-size: 14px; color: rgba(245,245,247,.62); margin-top: 3px; }
@@ -185,7 +190,8 @@
   .card .t { position: absolute; inset: auto 0 0 0; padding: 120px 28px 34px; font-size: 24px; line-height: 1.17; font-weight: 600; letter-spacing: .007em; color: #fff; background: linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,0)); }
   .card .t span { color: rgba(255,255,255,.7); }
   .paddles { display: flex; gap: 12px; justify-content: flex-end; max-width: 1240px; margin: 14px auto 0; padding: 0 22px; }
-  .paddle { width: 36px; height: 36px; border-radius: 50%; border: 0; background: var(--dark-2); color: #f5f5f7; font-size: 22px; line-height: 1; cursor: pointer; display: grid; place-items: center; }
+  .paddle { width: 36px; height: 36px; border-radius: 50%; border: 0; padding: 0; background: var(--dark-2); color: #f5f5f7; cursor: pointer; display: grid; place-items: center; }
+  .paddle svg { width: 16px; height: 16px; display: block; }
   .paddle:hover { background: #3a3a3c; }
   .paddle:disabled { opacity: .35; cursor: default; }
 
@@ -260,7 +266,7 @@
     html { scroll-behavior: auto; }
     .js .rv, .js .rv.in { opacity: 1; transform: none; transition: none; }
     .js .story .copy { opacity: 1; transition: none; }
-    .js .hero-media img { animation: none; }
+    .js .hero-product img { animation: none; opacity: 1; transform: none; }
     .card img, .localnav { transition: none; }
   }
 </style>
@@ -291,12 +297,8 @@
       <a class="more" href="#get">Get it</a>
     </div>
   </div>
-  <div class="hero-media">
-    <div class="wide">
-      <div class="frame">
-        <img src="img/hero.jpg" width="1376" height="768" alt="Six colleagues of different ages each at their own standing desk in a sunlit open-plan office, all in over-ear headphones, typing and on calls while dancing in place." fetchpriority="high">
-      </div>
-    </div>
+  <div class="hero-product">
+    <img src="img/headphones.jpg" width="1376" height="768" alt="Dark over-ear headphones resting on a stand turned from pale oak, lit against black." fetchpriority="high">
   </div>
 </section>
 
@@ -377,8 +379,8 @@
         <div class="phone" aria-label="The listener page on a phone: cover art, track and artist, one volume slider with a mute button, and a line saying it is in sync">
           <div class="island"></div>
           <div class="screen">
-            <div class="bd" id="bd" aria-hidden="true"></div>
-            <div class="cover"><canvas id="cover" width="480" height="480" aria-hidden="true"></canvas></div>
+            <div class="bd" aria-hidden="true" style="background-image: url(img/cover.jpg)"></div>
+            <div class="cover"><img src="img/cover.jpg" width="800" height="800" alt="The cover of a record that does not exist: a dusk sea through a rain-streaked office window, a desk lamp and a monitor reflected in the glass." loading="lazy"></div>
             <div class="meta">
               <div class="title">Low Tide (Office Edit)</div>
               <div class="artist">The Elevation Desks · Under the Desk, 1999</div>
@@ -419,8 +421,8 @@
       <figure class="card"><img src="img/hero.jpg" alt="Colleagues at their own desks, each in headphones, working and dancing in sync." loading="lazy"><figcaption class="t">Same record. <span>Like 1999, minus the frog.</span></figcaption></figure>
     </div>
     <div class="paddles">
-      <button class="paddle" type="button" data-dir="-1" aria-label="Previous highlight">&#8249;</button>
-      <button class="paddle" type="button" data-dir="1" aria-label="Next highlight">&#8250;</button>
+      <button class="paddle" type="button" data-dir="-1" aria-label="Previous highlight"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M10 3 5 8l5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
+      <button class="paddle" type="button" data-dir="1" aria-label="Next highlight"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
     </div>
   </div>
 </section>
@@ -536,7 +538,7 @@ boomerblaster url</pre>
       <li>iOS stops a web page's audio when the screen locks. Laptops are the better listener. Phones are the better DJ. The arrangement suits everyone, and it is also the only one available.</li>
     </ol>
     <div class="legal">
-      <p>The photographs on this page were generated with an image model. No office workers of any generation were asked to dance while working in the making of it; they did that on their own. "Low Tide (Office Edit)" and The Elevation Desks do not exist, which is the only reason the cover art is on this page. Vinyl ripped at 128 kbit/s in 1999 plays fine; the vinyl itself is not recoverable. Spotify is a trademark of Spotify AB, AirPlay of Apple Inc., Chromecast of Google LLC; none of them had anything to do with this. This page parodies a register, not a company; it is not affiliated with, endorsed by, or acquired by Apple. Yet.</p>
+      <p>The photographs on this page were generated with an image model. No office workers of any generation were asked to dance while working in the making of it; they did that on their own. "Low Tide (Office Edit)" and The Elevation Desks do not exist; their cover was generated too. Vinyl ripped at 128 kbit/s in 1999 plays fine; the vinyl itself is not recoverable. Spotify is a trademark of Spotify AB, AirPlay of Apple Inc., Chromecast of Google LLC; none of them had anything to do with this. This page parodies a register, not a company; it is not affiliated with, endorsed by, or acquired by Apple. Yet.</p>
       <div class="row">
         <span>Copyright © 2026 <a href="https://denfrievilje.dk">Den Frie Vilje ApS</a>. All rights reserved, which is to say MIT licensed.</span>
         <span><a href="https://github.com/den-frie-vilje/boomerblaster">Source</a></span>
@@ -598,6 +600,9 @@ boomerblaster url</pre>
   }
 
   // Local nav gains weight once the page has moved.
+  var hp = document.querySelector(".hero-product img");
+  if (hp) hp.addEventListener("animationend", function () { hp.classList.add("settled"); }, { once: true });
+
   var nav = document.getElementById("localnav");
   function onScroll() { nav.classList.toggle("scrolled", window.scrollY > 40); }
   window.addEventListener("scroll", onScroll, { passive: true }); onScroll();
@@ -628,44 +633,6 @@ boomerblaster url</pre>
     });
   }
 
-  // Cover art for the record that does not exist: a dusk sea through an office window.
-  var c = document.getElementById("cover");
-  if (c && c.getContext) {
-    var ctx = c.getContext("2d"), W = c.width, H = c.height;
-    var sky = ctx.createLinearGradient(0, 0, 0, H * .58);
-    sky.addColorStop(0, "#1b2733"); sky.addColorStop(.55, "#3a4a5a"); sky.addColorStop(.85, "#b9876a"); sky.addColorStop(1, "#d9a37e");
-    ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
-    var sea = ctx.createLinearGradient(0, H * .58, 0, H);
-    sea.addColorStop(0, "#2b5560"); sea.addColorStop(.5, "#1d3a44"); sea.addColorStop(1, "#0f1f27");
-    ctx.fillStyle = sea; ctx.fillRect(0, H * .58, W, H * .42);
-    for (var y = H * .6; y < H; y += 6) {
-      ctx.globalAlpha = .08 + Math.random() * .1;
-      ctx.fillStyle = y % 12 ? "#9fd3d0" : "#e7c9a8";
-      var x0 = Math.random() * W * .3, len = W * (.3 + Math.random() * .6);
-      ctx.fillRect(x0, y + Math.sin(y / 9) * 2, len, 1.5);
-    }
-    ctx.globalAlpha = 1;
-    var lamp = ctx.createRadialGradient(W * .74, H * .4, 4, W * .74, H * .4, W * .22);
-    lamp.addColorStop(0, "rgba(255,214,160,.85)"); lamp.addColorStop(.25, "rgba(255,190,120,.35)"); lamp.addColorStop(1, "rgba(255,190,120,0)");
-    ctx.fillStyle = lamp; ctx.fillRect(0, 0, W, H);
-    var mon = ctx.createRadialGradient(W * .3, H * .5, 2, W * .3, H * .5, W * .16);
-    mon.addColorStop(0, "rgba(160,220,255,.5)"); mon.addColorStop(1, "rgba(160,220,255,0)");
-    ctx.fillStyle = mon; ctx.fillRect(0, 0, W, H);
-    for (var i = 0; i < 90; i++) {
-      ctx.globalAlpha = .18 + Math.random() * .25; ctx.strokeStyle = "#dfe8ee"; ctx.lineWidth = .6 + Math.random();
-      var rx = Math.random() * W, ry = Math.random() * H * .7, rl = 10 + Math.random() * 40;
-      ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + 2, ry + rl); ctx.stroke();
-    }
-    ctx.globalAlpha = 1;
-    var img = ctx.getImageData(0, 0, W, H), d = img.data;
-    for (var p = 0; p < d.length; p += 4) { var n = (Math.random() - .5) * 26; d[p] += n; d[p + 1] += n; d[p + 2] += n; }
-    ctx.putImageData(img, 0, 0);
-    var vig = ctx.createRadialGradient(W / 2, H / 2, W * .35, W / 2, H / 2, W * .75);
-    vig.addColorStop(0, "rgba(0,0,0,0)"); vig.addColorStop(1, "rgba(0,0,0,.55)");
-    ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
-    var bd = document.getElementById("bd");
-    if (bd) bd.style.backgroundImage = "url(" + c.toDataURL("image/jpeg", .6) + ")";
-  }
 })();
 </script>
 </body>
