@@ -65,6 +65,7 @@ import os
 import plistlib
 import shutil
 import socket
+import ssl
 import subprocess
 import sys
 import time
@@ -228,6 +229,44 @@ def port_open(port, host="127.0.0.1", timeout=0.5):
         return False
 
 
+def airplay_port_holder():
+    """The command listening on TCP 5000 (AirPlay's port), or None.
+
+    macOS's own AirPlay Receiver (the ControlCenter process) holds 5000
+    when it is on, and Homebrew's shairport-sync ignores every way of
+    moving to another port, so the two cannot share a Mac.
+    """
+    if not DARWIN:
+        return None
+    res = subprocess.run(
+        ["/usr/sbin/lsof", "-nP", "-iTCP:5000", "-sTCP:LISTEN", "-Fc"],
+        capture_output=True, text=True,
+    )
+    for line in res.stdout.splitlines():
+        if line.startswith("c"):
+            return line[1:]
+    return None
+
+
+def airplay_port_problem(cfg):
+    """What stands in AirPlay's way, as a message, or None."""
+    if not (DARWIN and cfg["airplay"]):
+        return None
+    holder = airplay_port_holder()
+    if holder is None or holder.startswith("shairport"):
+        return None
+    if holder == "ControlCenter":
+        return (
+            "macOS's own AirPlay Receiver is on and holds port 5000, which shairport-sync needs.\n"
+            "Turn it off in System Settings > General > AirDrop & Handoff > AirPlay Receiver,\n"
+            "or keep it and turn this half off with: boomerblaster set airplay false"
+        )
+    return (
+        f"port 5000 is held by {holder!r}, which shairport-sync needs.\n"
+        "Stop that program, or turn AirPlay off with: boomerblaster set airplay false"
+    )
+
+
 # -------------------------------------------------------- snapserver.conf
 
 def render_conf(cfg, paths):
@@ -268,6 +307,9 @@ def render_conf(cfg, paths):
         "enabled = true",
         f"port = {cfg['http_port']}",
         f"doc_root = {WWW_DIR}",
+        # The name snapserver puts in its cover-art links; without it, the
+        # links carry a bare hostname other devices cannot resolve.
+        f"host = {local_hostname()}",
         "",
         "[tcp]",
         "enabled = true",
@@ -357,11 +399,28 @@ def install_listener():
     say(f"listener page installed from {src}")
 
 
+def tls_context():
+    context = ssl.create_default_context()
+    if context.cert_store_stats()["x509_ca"]:
+        return context
+    # A python3 whose OpenSSL ships no CA bundle (pyenv and similar builds)
+    # verifies nothing by default; fall back to a bundle the OS provides.
+    for cafile in (
+        "/etc/ssl/cert.pem",
+        "/opt/homebrew/etc/ca-certificates/cert.pem",
+        "/usr/local/etc/ca-certificates/cert.pem",
+        "/etc/ssl/certs/ca-certificates.crt",
+    ):
+        if os.path.isfile(cafile):
+            return ssl.create_default_context(cafile=cafile)
+    return context
+
+
 def fetch_snapweb():
     say(f"fetching the admin page (Snapweb {SNAPWEB_VERSION})")
     req = urllib.request.Request(SNAPWEB_URL, headers={"User-Agent": "boomerblaster/" + VERSION})
     try:
-        with urllib.request.urlopen(req, timeout=60) as resp:
+        with urllib.request.urlopen(req, timeout=60, context=tls_context()) as resp:
             blob = resp.read()
     except OSError as exc:
         fail(f"could not download {SNAPWEB_URL}: {exc}")
@@ -515,6 +574,11 @@ def cmd_run(_args):
     snapserver = which("snapserver")
     if not snapserver:
         fail("snapserver is not installed; brew install snapcast")
+    problem = airplay_port_problem(cfg)
+    if problem:
+        # Keep serving Spotify and the page; under launchd a hard exit
+        # here would just have launchd respawn us into the same wall.
+        say("warning: " + problem)
     argv = [snapserver, "-c", SNAPSERVER_CONF]
     caffeinate = which("caffeinate") if DARWIN else None
     if caffeinate:
@@ -535,6 +599,9 @@ def cmd_start(args):
     if launchd_loaded():
         say("already running (LaunchAgent loaded); use restart to apply changes")
         return
+    problem = airplay_port_problem(cfg)
+    if problem:
+        fail(problem)
     write_plist()
     res = subprocess.run(
         ["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST_PATH],
@@ -578,10 +645,11 @@ def print_urls(cfg):
 
 
 def urls(cfg):
-    out = [f"http://{local_hostname()}:{cfg['http_port']}"]
+    port = "" if cfg["http_port"] == 80 else f":{cfg['http_port']}"
+    out = [f"http://{local_hostname()}{port}"]
     ip = local_ip()
     if ip:
-        out.append(f"http://{ip}:{cfg['http_port']}")
+        out.append(f"http://{ip}{port}")
     return out
 
 
@@ -676,7 +744,12 @@ def cmd_doctor(_args):
     check(port_open(cfg["control_port"]), f"port {cfg['control_port']} answers (control)", f"port {cfg['control_port']} closed")
     check(port_open(cfg["stream_port"]), f"port {cfg['stream_port']} answers (audio)", f"port {cfg['stream_port']} closed")
     if cfg["airplay"]:
-        check(port_open(5000), "port 5000 answers (AirPlay)", "port 5000 closed; shairport-sync is not up yet (it starts with the server)")
+        problem = airplay_port_problem(cfg)
+        if problem:
+            check(False, "", problem.replace("\n", "\n        "))
+        else:
+            check(port_open(5000), "port 5000 answers (AirPlay, shairport-sync)",
+                  "port 5000 closed; shairport-sync is not up yet (it starts with the server)")
 
     say("network")
     host = local_hostname()

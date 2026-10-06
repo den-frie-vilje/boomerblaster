@@ -86,6 +86,11 @@ same dependencies and copies the command into `~/.local/bin`.
    `shairport-sync` or `librespot` may accept incoming connections, allow it;
    that is listeners and phones reaching your Mac.
 
+   If the Mac's own AirPlay Receiver is on, it occupies the port AirPlay
+   needs, and `start` says so instead of starting. Turn it off in
+   System Settings → General → AirDrop & Handoff → AirPlay Receiver;
+   BoomerBlaster is the AirPlay receiver now.
+
 3. Get the address to send round:
 
    ```sh
