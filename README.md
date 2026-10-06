@@ -99,6 +99,8 @@ same dependencies and copies the command into `~/.local/bin`.
 
 ## Let colleagues in
 
+![The listener page on a laptop and on a phone: the cover art large with its colours blurred into the background, the track and artist beneath, one volume slider between two speaker glyphs, and a line reading "In sync · 2 listening"](docs/img/listener.jpg)
+
 Colleagues open the address in any browser, tap the artwork and put on their
 headphones. The page shows the cover art large, the track and artist
 underneath, and one slider with a mute button that moves their own ears only.
