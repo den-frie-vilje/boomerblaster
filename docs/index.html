@@ -111,24 +111,26 @@
   /* the stage: the product pins for a few screen heights while the headline arrives over it */
   .stage { height: 260vh; margin-top: 28px; --p: 1; --pe: 1; }
   .pin { position: sticky; top: 52px; height: calc(100vh - 52px); height: calc(100dvh - 52px); overflow: hidden; background: #000; }
-  .product-wrap { position: absolute; inset: 0; transform-origin: 50% 62%; transform: translateY(calc(var(--pe) * -3.5%)) scale(calc(1 + var(--pe) * .16)); will-change: transform; }
+  .product-wrap { position: absolute; inset: 0; transform-origin: 50% 78%; transform: translateY(calc(var(--pe) * -1.5%)) scale(calc(1 + var(--pe) * .14)); }
   .product { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%; transform-origin: 50% 70%; }
   .js .product { opacity: 0; transform: scale(.82); animation: emerge 2.2s cubic-bezier(.16, .8, .24, 1) .5s forwards; }
   @keyframes emerge { 0% { opacity: 0; transform: scale(.82); filter: brightness(0); } 45% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
   .shade { position: absolute; inset: 0; background: #000; opacity: calc(var(--p) * .42); pointer-events: none; }
   .lines { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: .06em; padding: 0 22px; text-align: center; margin: 0; }
-  .line {
-    display: block; font-size: clamp(40px, 9.5vw, 136px); line-height: 1; filter: drop-shadow(0 10px 40px rgba(0,0,0,.6));
-    --t: clamp(0, (var(--p) - (.12 + var(--i) * .38)) / .16, 1);
-    opacity: var(--t); transform: translateY(calc((1 - var(--t)) * 36px)) scale(calc(.94 + var(--t) * .06));
-  }
-  /* each character: the system face underneath, the boomer face over it, swapped by scroll with a per-character start (--b) */
+  .line { display: block; font-size: clamp(40px, 9.5vw, 136px); line-height: 1; filter: drop-shadow(0 10px 40px rgba(0,0,0,.6)); }
+  /* slam: each letter lands from large to small, slightly blurred on the way, with a per-letter start (--b) */
   .word { display: inline-block; white-space: nowrap; }
-  .ch { position: relative; display: inline-block; --m: clamp(0, (var(--p) - var(--b)) / .06, 1); }
-  .ch > span { display: inline-block; background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .ch .boo { opacity: var(--m); transform: scale(calc(.86 + var(--m) * .14)); }
-  .ch .sys { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(calc(1 + var(--m) * .1)); font-family: var(--font); font-weight: 700; letter-spacing: -.03em; text-transform: none; opacity: calc(1 - var(--m)); }
+  .ch { display: inline-block; --m: clamp(0, (var(--p) - var(--b)) / .05, 1); }
+  .ch .boo {
+    display: inline-block; background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
+    opacity: var(--m); transform: scale(calc(1 + (1 - var(--m)) * 2.2)); filter: blur(calc((1 - var(--m)) * 6px));
+  }
   .no-split .line { background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .pin > .product-wrap, .pin > .lines { will-change: transform; }
+  .pin.boom .product-wrap { animation: shake .42s cubic-bezier(.2, .7, .2, 1) both; }
+  .pin.boom .lines { animation: punch .42s cubic-bezier(.2, .7, .2, 1) both; }
+  @keyframes shake { 0% { translate: 0 0; } 15% { translate: -6px 4px; } 35% { translate: 5px -4px; } 55% { translate: -3px 2px; } 75% { translate: 2px -1px; } 100% { translate: 0 0; } }
+  @keyframes punch { 0% { scale: 1.06; } 40% { scale: .985; } 100% { scale: 1; } }
   @media (max-width: 734px) { .stage { height: 200vh; } .line { font-size: clamp(36px, 11vw, 64px); } }
 
   /* story */
@@ -286,7 +288,8 @@
     .stage { height: auto; }
     .pin { position: static; height: auto; aspect-ratio: 16 / 9; }
     .line { opacity: 1; transform: none; }
-    .ch .boo { opacity: 1; transform: none; } .ch .sys { opacity: 0; }
+    .ch .boo { opacity: 1; transform: none; filter: none; }
+    .pin.boom .product-wrap, .pin.boom .lines { animation: none; }
     .product-wrap { transform: none; }
     .card img, .localnav { transition: none; }
   }
@@ -335,8 +338,8 @@
   <div class="wrap story">
     <p class="eyebrow rv">Do you remember the time</p>
     <h2 class="headline xl rv" style="--d:.08s">When the office was the party.</h2>
-    <p class="copy" data-story>You lived under your desk. It was the dot-com boom, and the desk was where the boom happened. You smoked indoors. You ripped your vinyl to 128 kbit/s and put the vinyl out with the recycling.</p>
-    <p class="copy" data-story>Everyone was noisy. Everyone listened to the same thing, because everyone had to. Noise cancelling meant someone going <em>schhh</em>. And every week somebody nudged the volume knob one notch, and nobody noticed, and the frog boiled.</p>
+    <p class="copy" data-story>You lived under your desk. It was the dot-com boom. You smoked indoors. You ripped your vinyl to 128 kbit/s and put the vinyl out with the trash.</p>
+    <p class="copy" data-story>Everyone was noisy. Everyone listened to the same thing, because everyone had to. Noise cancelling meant someone going <em>schhh</em>. And every week somebody nudged the volume knob one notch. Nobody noticed. Boiling the frog.</p>
     <p class="copy" data-story><strong>Well. No?</strong></p>
     <p class="copy" data-story>Now you can at least listen together again. And embarrass yourself with your low-BPM downtempo<sup>2</sup> in front of the whole floor, at a volume that bothers no one.</p>
   </div>
@@ -634,7 +637,7 @@ boomerblaster url</pre>
   var linesEl = document.getElementById("lines");
   if (linesEl) {
     // Split each line into characters, each carrying the scroll position at which it flips face.
-    var morphStart = [0.34, 0.70], morphSpan = 0.24;
+    var morphStart = [0.22, 0.58], morphSpan = 0.14;
     linesEl.querySelectorAll(".line").forEach(function (line, li) {
       var chars = Array.from(line.textContent), n = chars.length;
       line.textContent = "";
@@ -646,8 +649,7 @@ boomerblaster url</pre>
         cell.className = "ch";
         cell.style.setProperty("--b", (morphStart[li] + (ci / n) * morphSpan).toFixed(3));
         var boo = document.createElement("span"); boo.className = "boo"; boo.textContent = ch;
-        var sys = document.createElement("span"); sys.className = "sys"; sys.textContent = ch; sys.setAttribute("aria-hidden", "true");
-        cell.appendChild(boo); cell.appendChild(sys);
+        cell.appendChild(boo);
         word.appendChild(cell);
       });
     });
@@ -655,6 +657,7 @@ boomerblaster url</pre>
   if (stage && !reduce) {
     stage.style.setProperty("--p", "0");
     stage.style.setProperty("--pe", "0");
+    var boomed = [false, false];
     var ticking = false;
     function stageProgress() {
       ticking = false;
@@ -664,6 +667,13 @@ boomerblaster url</pre>
       var pe = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;  // ease in and out
       stage.style.setProperty("--p", p.toFixed(4));
       stage.style.setProperty("--pe", pe.toFixed(4));
+      // a boom when a line has fully landed, once per crossing
+      var pin = stage.querySelector(".pin");
+      [0.22 + 0.14 + 0.05, 0.58 + 0.14 + 0.05].forEach(function (landAt, li) {
+        var landed = p >= landAt;
+        if (landed && !boomed[li]) { boomed[li] = true; pin.classList.remove("boom"); void pin.offsetWidth; pin.classList.add("boom"); }
+        if (!landed) boomed[li] = false;
+      });
     }
     window.addEventListener("scroll", function () { if (!ticking) { ticking = true; requestAnimationFrame(stageProgress); } }, { passive: true });
     window.addEventListener("resize", stageProgress);
