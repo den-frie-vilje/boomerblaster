@@ -198,6 +198,7 @@ BoomerBlaster writes and reads these files, and nothing else:
 | `codec` | `"flac"` | `pcm`, `flac` or `opus`; pcm is the most robust, opus the lightest |
 | `buffer_ms` | `1000` | time between stamping a chunk and playing it; raise on poor Wi-Fi |
 | `airplay` | `true` | offer an AirPlay receiver |
+| `airplay_version` | `2` | `2`: AirPlay 2 (needs nqptp); `1`: classic, no PTP clock, so this Mac can cast too. `cast on/off` flips it |
 | `spotify` | `true` | offer a Spotify Connect receiver |
 | `spotify_bitrate` | `320` | 96, 160 or 320 |
 | `sysaudio` | `false` | broadcast what this Mac plays into a virtual audio device |
@@ -222,7 +223,7 @@ set KEY VALUE   change a setting
 config          print settings and file locations
 logs [-f]       show the server log
 disarm          same as stop; run before brew uninstall
-cast [on|off]   on: cast AirPlay from this Mac (pauses the AirPlay 2 receiver); off: receive again
+cast [on|off]   on: cast AirPlay from this Mac (receiver drops to classic AirPlay); off: AirPlay 2 again
 version         print the version
 ```
 
@@ -300,10 +301,12 @@ and only because the virtual device may run at another rate.
   `brew services start nqptp` and forget it. `doctor` and `start` tell you
   if it is missing. The build is pinned to shairport-sync's development
   branch until AirPlay-2-on-macOS ships in a release. The same two ports
-  are what macOS's own AirPlay sender uses, so while the receiver runs,
-  this Mac cannot cast to other AirPlay 2 speakers. `boomerblaster cast on`
-  pauses nqptp and the receiver so you can; `cast off` brings them back.
-  Phones, and the System source, are the ways to play while receiving.
+  are what macOS's own AirPlay sender uses, so while the receiver runs as
+  AirPlay 2, this Mac cannot cast to other AirPlay 2 speakers.
+  `boomerblaster cast on` drops the receiver to classic AirPlay, which
+  needs no PTP clock, stops nqptp and restarts the server: phones still
+  cast to it, AirPlay-2-only apps no longer list it, and this Mac can cast.
+  `cast off` brings AirPlay 2 back.
 - **Browsers vary.** Chrome, Edge and Firefox report their output latency
   precisely; Safari less so, and may sit a few tens of milliseconds off.
 
