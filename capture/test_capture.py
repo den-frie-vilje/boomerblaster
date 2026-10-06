@@ -508,6 +508,11 @@ class ProcessTap(unittest.TestCase):
         ok, why = tap_ready()
         if not ok:
             self.skipTest(why)
+        # The tone player needs an output device to play into; BlackHole keeps
+        # that silent. Without it (a CI runner) there is nothing to tap.
+        out = subprocess.run([BIN, "--check", "--device", "BlackHole 2ch"], capture_output=True, text=True, timeout=10)
+        if out.returncode == 2:
+            self.skipTest("BlackHole 2ch is not installed; the tap tests play their tone into it")
 
     def tone(self, hz):
         proc = subprocess.Popen([BIN, "--tone-to", "BlackHole 2ch", "--tone-hz", str(hz)], stderr=subprocess.DEVNULL)
