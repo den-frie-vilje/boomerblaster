@@ -190,7 +190,11 @@
   /* Round the screen itself, not only the phone: Safari does not clip an
      absolutely positioned child to a rounded overflow:hidden parent, so the
      corners would otherwise sit square. Inner radius = 48px frame - 10px border. */
-  .screen { position: absolute; inset: 0; padding: 24px 22px 22px; display: flex; flex-direction: column; justify-content: center; gap: 22px; color: #f5f5f7; background: #000; overflow: hidden; border-radius: 38px; }
+  /* border-radius + overflow:hidden alone does not clip the blurred .bd in
+     Safari: its filter puts it on its own layer, which WebKit won't clip to
+     an ancestor's corners. Promoting .screen to a layer too (translateZ) makes
+     the rounded clip apply at the layer level, in Safari as in the rest. */
+  .screen { position: absolute; inset: 0; padding: 24px 22px 22px; display: flex; flex-direction: column; justify-content: center; gap: 22px; color: #f5f5f7; background: #000; overflow: hidden; border-radius: 38px; transform: translateZ(0); isolation: isolate; }
   .screen .bd { position: absolute; inset: -20%; background-size: cover; background-position: center; filter: blur(40px) saturate(1.4) brightness(.55); }
   .screen .bd::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.25); }
   .screen > :not(.bd) { position: relative; }
