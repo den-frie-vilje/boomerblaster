@@ -327,7 +327,8 @@ def render_conf(cfg, paths):
     at that rate and nothing is resampled. The `meta` stream wraps the
     two receivers so that listeners sit on one stream, named after the
     venue, and hear whichever source is playing; the first in its list
-    wins when both play at once.
+    wins when both play at once. It is the default source, so a new
+    listener joins it rather than the first receiver's own stream.
     """
     name = quote(cfg["name"], safe="")
     sources = []
@@ -382,6 +383,8 @@ def render_conf(cfg, paths):
         "",
         "[stream]",
         f"port = {cfg['stream_port']}",
+        # New listeners land on the venue stream, not on the first receiver.
+        f"default_source = {cfg['name']}",
         "sampleformat = 44100:16:2",
         f"codec = {cfg['codec']}",
         f"buffer = {cfg['buffer_ms']}",

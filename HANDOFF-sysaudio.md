@@ -119,12 +119,16 @@ another Mac or a fresh user account. If the prompt is attributed to
 feeding snapserver over `tcp://` would give it its own identity and a stable
 name in the prompt.
 
-### 3. Default stream assignment (minor, unchanged)
+### 3. Default stream assignment (done)
 
-New listeners default to the **AirPlay** stream (first source), not the venue
-meta stream. Fix options: list the `meta` source first in `render_conf` (check
-Snapcast still resolves it), or a startup RPC setting all groups to the venue
-stream.
+`render_conf` now sets `default_source = <name>` under `[stream]`: snapserver
+0.35's `StreamManager::getDefaultStream` puts a new client on the stream of
+that name instead of the first regular source. Verified with a throwaway
+`snapclient --player file`: it landed on `BoomerBlaster`. Groups snapserver
+had already stored keep their old stream; on this Mac they were moved once
+over RPC (`Group.SetStream`). Other installs can move theirs in `/admin/`.
+Snapserver older than 0.35 does not know the key and would refuse the
+config; Homebrew ships 0.35.
 
 ### 4. Homebrew formula (release time)
 
@@ -161,8 +165,8 @@ helper to `libexec/boomerblaster/` and `plug-ins` to `pkgshare`.
 2. `boomerblaster set sysaudio true`, `boomerblaster restart`
    (sysaudio is currently **on** in this Mac's config).
 3. Allow the Microphone prompt if one appears.
-4. Move listeners to the venue stream until item 3 lands:
-   `Group.SetStream {id, stream_id:"BoomerBlaster"}` over TCP 1705.
+4. New listeners join the venue stream by themselves; a group stored on
+   another stream from before can be moved in `/admin/`.
 
 ## Related state
 

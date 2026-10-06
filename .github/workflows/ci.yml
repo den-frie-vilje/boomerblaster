@@ -32,7 +32,8 @@ jobs:
           conf = mod.render_conf(cfg, {"shairport-sync": "/opt/homebrew/bin/shairport-sync",
                                        "librespot": "/opt/homebrew/bin/librespot"})
           for needle in ("airplay:///opt/homebrew/bin/shairport-sync", "librespot:///opt/homebrew/bin/librespot",
-                         "meta:///AirPlay/Spotify?name=BoomerBlaster", "doc_root =", "codec = flac"):
+                         "meta:///AirPlay/Spotify?name=BoomerBlaster", "default_source = BoomerBlaster",
+                         "doc_root =", "codec = flac"):
               assert needle in conf, needle
           print(conf)
           EOF

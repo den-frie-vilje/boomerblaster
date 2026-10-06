@@ -279,8 +279,9 @@ open-source programs that do the work:
   attaches title, artist, album and artwork to the stream.
 
 `boomerblaster init` writes a `snapserver.conf` with one stream per receiver and
-a `meta` stream that wraps them, so listeners sit on a single stream named
-after the venue and hear whichever source is playing. Both receivers deliver
+a `meta` stream that wraps them, set as the default source, so a new listener
+lands on a single stream named after the venue and hears whichever source is
+playing. Both receivers deliver
 44.1 kHz stereo, so nothing is resampled; only the System capture resamples,
 and only because the virtual device may run at another rate.
 
