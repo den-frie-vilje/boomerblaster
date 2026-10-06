@@ -117,16 +117,19 @@
   @keyframes emerge { 0% { opacity: 0; transform: scale(.82); filter: brightness(0); } 45% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
   .shade { position: absolute; inset: 0; background: #000; opacity: calc(var(--p) * .42); pointer-events: none; }
   .lines { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: .06em; padding: 0 22px; text-align: center; margin: 0; }
-  .line { display: block; font-size: clamp(40px, 9.5vw, 136px); line-height: 1; filter: drop-shadow(0 10px 40px rgba(0,0,0,.6)); }
-  /* slam: each letter lands from large to small, slightly blurred on the way, with a per-letter start (--b) */
+  .line { display: block; font-size: clamp(40px, 9.5vw, 136px); line-height: 1; }
+  /* slam: each letter lands from large to small with a per-letter start (--b). Only transform and opacity move,
+     so the compositor does the work; the titanium gradient (a clipped background, costly to re-rasterise) is
+     applied by script once a letter has landed and is still. */
   .word { display: inline-block; white-space: nowrap; }
   .ch { display: inline-block; --m: clamp(0, (var(--p) - var(--b)) / .05, 1); }
   .ch .boo {
-    display: inline-block; background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent;
-    opacity: var(--m); transform: scale(calc(1 + (1 - var(--m)) * 2.2)); filter: blur(calc((1 - var(--m)) * 6px));
+    display: inline-block; color: #e5e5ea; will-change: transform, opacity;
+    opacity: var(--m); transform: scale(calc(1 + (1 - var(--m)) * 2.2));
   }
+  .ch.in .boo { background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; will-change: auto; transform: none; opacity: 1; }
+  .pin { contain: paint; }
   .no-split .line { background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
-  .pin > .product-wrap, .pin > .lines { will-change: transform; }
   .pin.boom .product-wrap { animation: shake .42s cubic-bezier(.2, .7, .2, 1) both; }
   .pin.boom .lines { animation: punch .42s cubic-bezier(.2, .7, .2, 1) both; }
   @keyframes shake { 0% { translate: 0 0; } 15% { translate: -6px 4px; } 35% { translate: 5px -4px; } 55% { translate: -3px 2px; } 75% { translate: 2px -1px; } 100% { translate: 0 0; } }
@@ -288,7 +291,7 @@
     .stage { height: auto; }
     .pin { position: static; height: auto; aspect-ratio: 16 / 9; }
     .line { opacity: 1; transform: none; }
-    .ch .boo { opacity: 1; transform: none; filter: none; }
+    .ch .boo { opacity: 1; transform: none; }
     .pin.boom .product-wrap, .pin.boom .lines { animation: none; }
     .product-wrap { transform: none; }
     .card img, .localnav { transition: none; }
@@ -638,6 +641,7 @@ boomerblaster url</pre>
   if (linesEl) {
     // Split each line into characters, each carrying the scroll position at which it flips face.
     var morphStart = [0.22, 0.58], morphSpan = 0.14;
+    var cells = [];
     linesEl.querySelectorAll(".line").forEach(function (line, li) {
       var chars = Array.from(line.textContent), n = chars.length;
       line.textContent = "";
@@ -647,7 +651,9 @@ boomerblaster url</pre>
         if (!word) { word = document.createElement("span"); word.className = "word"; line.appendChild(word); }
         var cell = document.createElement("span");
         cell.className = "ch";
-        cell.style.setProperty("--b", (morphStart[li] + (ci / n) * morphSpan).toFixed(3));
+        var b = morphStart[li] + (ci / n) * morphSpan;
+        cell.style.setProperty("--b", b.toFixed(3));
+        cells.push({ el: cell, at: b + 0.05 });
         var boo = document.createElement("span"); boo.className = "boo"; boo.textContent = ch;
         cell.appendChild(boo);
         word.appendChild(cell);
@@ -657,14 +663,17 @@ boomerblaster url</pre>
   if (stage && !reduce) {
     stage.style.setProperty("--p", "0");
     stage.style.setProperty("--pe", "0");
-    var boomed = [false, false];
+    var boomed = [false, false], lastP = -1;
     var ticking = false;
     function stageProgress() {
       ticking = false;
       var rect = stage.getBoundingClientRect();
       var travel = stage.offsetHeight - window.innerHeight;
       var p = travel > 0 ? Math.min(1, Math.max(0, -rect.top / travel)) : 1;
+      if (Math.abs(p - lastP) < 0.0005) return;
+      lastP = p;
       var pe = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;  // ease in and out
+      if (typeof cells !== "undefined") cells.forEach(function (c) { c.el.classList.toggle("in", p >= c.at); });
       stage.style.setProperty("--p", p.toFixed(4));
       stage.style.setProperty("--pe", pe.toFixed(4));
       // a boom when a line has fully landed, once per crossing
