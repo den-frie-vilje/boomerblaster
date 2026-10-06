@@ -47,6 +47,15 @@ else
     echo "note: listener/dist is missing; build it with: cd listener && pnpm install && pnpm build"
 fi
 
+# The System source's parts: the Now Playing control script, and the capture
+# helper's source, which `boomerblaster init` compiles when sysaudio is on.
+mkdir -p "$DATA_DIR"
+rm -rf "$DATA_DIR/plug-ins" "$DATA_DIR/capture"
+cp -R "$HERE/plug-ins" "$DATA_DIR/plug-ins"
+mkdir -p "$DATA_DIR/capture"
+cp "$HERE/capture/boomerblaster-capture.m" "$HERE/capture/Info.plist" "$DATA_DIR/capture/"
+echo "installed the system-audio parts in $DATA_DIR"
+
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) echo "note: $BIN_DIR is not in your PATH; add to your shell profile:"

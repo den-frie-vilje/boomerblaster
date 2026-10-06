@@ -356,6 +356,7 @@ def render_conf(cfg, paths):
             f"source = process://{CAPTURE_PATH}?name=System"
             "&sampleformat=44100:16:2"
             "&controlscript=meta_nowplaying.py"
+            "&log_stderr=true"
         )
         order.append("System")
     sources.append(f"source = meta:///{'/'.join(order)}?name={name}")
@@ -403,8 +404,6 @@ def required_programs(cfg):
         programs.append("shairport-sync")
     if cfg["spotify"]:
         programs.append("librespot")
-    if cfg["sysaudio"]:
-        programs.append("ffmpeg")
     return programs
 
 
@@ -438,11 +437,13 @@ def listener_source():
 
 def plugin_dir():
     """Where the Snapcast control scripts live (the now-playing metadata
-    reader): next to the Homebrew binary, or in a clone."""
+    reader): next to the Homebrew binary, in a clone, or where install.sh
+    put them."""
     here = os.path.dirname(os.path.realpath(__file__))
     for candidate in (
         os.path.join(here, "..", "share", "boomerblaster", "plug-ins"),
         os.path.join(here, "plug-ins"),
+        os.path.join(DATA_DIR, "plug-ins"),
     ):
         candidate = os.path.normpath(candidate)
         if os.path.exists(os.path.join(candidate, "meta_nowplaying.py")):
@@ -454,31 +455,110 @@ def plugin_dir():
 # stable path and the device name (which contains a space) never has to pass
 # through Snapcast's space-split parameter parsing.
 CAPTURE_PATH = os.path.join(CONFIG_DIR, "capture.sh")
+CAPTURE_HELPER = "boomerblaster-capture"
+CAPTURE_FRAMEWORKS = ["Foundation", "AVFoundation", "CoreAudio", "AudioToolbox"]
+
+
+def capture_source():
+    """The helper's source directory: in a clone, where the formula put it,
+    or where install.sh put it."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for candidate in (
+        os.path.join(here, "capture"),
+        os.path.join(here, "..", "share", "boomerblaster", "capture"),
+        os.path.join(DATA_DIR, "capture"),
+    ):
+        candidate = os.path.normpath(candidate)
+        if os.path.exists(os.path.join(candidate, CAPTURE_HELPER + ".m")):
+            return candidate
+    return None
+
+
+def capture_helper(build=False):
+    """Where the built capture helper is: next to the Homebrew binary, in a
+    clone after `make -C capture`, or built by init into the data directory.
+    With build=True a missing helper is compiled from source, or init fails
+    with the reason."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for candidate in (
+        os.path.join(here, "..", "libexec", "boomerblaster", CAPTURE_HELPER),
+        os.path.join(here, "capture", CAPTURE_HELPER),
+        os.path.join(DATA_DIR, CAPTURE_HELPER),
+    ):
+        candidate = os.path.normpath(candidate)
+        if os.access(candidate, os.X_OK):
+            return candidate
+    if not build:
+        return None
+    return build_capture_helper()
+
+
+def build_capture_helper():
+    """Compiles the helper into the data directory. Needs the Xcode command
+    line tools (clang), which Homebrew needs anyway."""
+    src = capture_source()
+    if not src:
+        fail(
+            "the capture helper is missing and its source is not here either;\n"
+            "reinstall boomerblaster, or run `make -C capture` in a clone"
+        )
+    clang = which("clang")
+    if not clang:
+        fail(
+            "building the capture helper needs the Xcode command line tools:\n"
+            "  xcode-select --install\n"
+            "then run boomerblaster init again"
+        )
+    os.makedirs(DATA_DIR, exist_ok=True)
+    target = os.path.join(DATA_DIR, CAPTURE_HELPER)
+    argv = [clang, "-O2", "-Wall", "-fobjc-arc", "-mmacosx-version-min=12.0"]
+    for fw in CAPTURE_FRAMEWORKS:
+        argv += ["-framework", fw]
+    argv += ["-sectcreate", "__TEXT", "__info_plist", os.path.join(src, "Info.plist"),
+             "-o", target, os.path.join(src, CAPTURE_HELPER + ".m")]
+    say("building the capture helper (once)...")
+    res = subprocess.run(argv, capture_output=True, text=True)
+    if res.returncode != 0:
+        fail("building the capture helper failed:\n" + res.stderr.strip())
+    say(f"capture helper built at {target}")
+    return target
 
 
 def write_capture(cfg):
-    ffmpeg = which("ffmpeg") or "/opt/homebrew/bin/ffmpeg"
+    helper = capture_helper(build=True)
     device = cfg["sysaudio_device"]
-    # The virtual device runs on the audio hardware's clock, which drifts
-    # against snapserver's; feeding its raw samples makes snapserver resync
-    # several times a second (audible as clicks). Timestamping each frame
-    # against the wall clock and resampling to match (aresample async) locks
-    # the output to real time, so it stays in sync like a proper receiver.
-    # Raw PCM to stdout; snapserver reads it through the process source.
+    # The helper reads the virtual device through CoreAudio, measures the
+    # device's clock against the system clock from the HAL's timestamps,
+    # resamples to 44.1 kHz at the ratio that keeps the two locked, and writes
+    # the PCM to stdout paced to real time, so snapserver's process source
+    # always finds the next chunk ready and never resyncs. See capture/ for
+    # the source and its end-to-end tests.
     script = (
         "#!/bin/sh\n"
         "# Generated by boomerblaster. Captures the virtual audio device,\n"
         "# clock-locked, and writes raw PCM (s16le 44100 stereo) to stdout.\n"
-        f'exec "{ffmpeg}" -hide_banner -loglevel error '
-        "-use_wallclock_as_timestamps 1 "
-        f'-f avfoundation -i ":{device}" '
-        '-af "aresample=async=1000" '
-        "-ac 2 -ar 44100 -f s16le -\n"
+        f'exec "{helper}" --device "{device}" --rate 44100\n'
     )
     with open(CAPTURE_PATH, "w") as fh:
         fh.write(script)
     os.chmod(CAPTURE_PATH, 0o755)
     return None
+
+
+def capture_check(cfg):
+    """Asks the helper about the device and the microphone permission.
+    Returns (dict or None, exit code)."""
+    helper = capture_helper()
+    if not helper:
+        return None, None
+    res = subprocess.run(
+        [helper, "--check", "--device", cfg["sysaudio_device"]],
+        capture_output=True, text=True,
+    )
+    try:
+        return json.loads(res.stdout), res.returncode
+    except json.JSONDecodeError:
+        return None, res.returncode
 
 
 def listener_present():
@@ -651,6 +731,8 @@ def cmd_init(args):
         )
     for prog, path in paths.items():
         say(f"found {prog} at {path}")
+    if cfg["sysaudio"]:
+        say(f"found capture helper at {capture_helper(build=True)}")
 
     install_listener()
     if admin_present():
@@ -842,6 +924,24 @@ def cmd_doctor(_args):
     if DARWIN:
         check(which("caffeinate"), "caffeinate: keeps the Mac awake while serving",
               "caffeinate missing; the Mac may sleep mid-set")
+
+    if cfg["sysaudio"]:
+        say("system audio")
+        helper = capture_helper()
+        check(helper, f"capture helper: {helper}", "capture helper missing; run boomerblaster init")
+        info, code = capture_check(cfg)
+        if info:
+            check(info.get("found"),
+                  f"device \"{info.get('name')}\" at {info.get('rate', 0):.0f} Hz, {info.get('channels')} channel(s)",
+                  f"no input device named \"{cfg['sysaudio_device']}\"; install BlackHole (brew install blackhole-2ch)"
+                  " or set sysaudio_device")
+            mic = info.get("microphone")
+            if mic == "authorized":
+                check(True, "microphone permission granted to this terminal (capture counts as that)", "")
+            else:
+                say(f"  note  microphone permission is {mic} for this terminal; the capture itself runs")
+                say("        under the server and asks when it first starts. If the System source stays")
+                say("        idle, allow it in System Settings > Privacy & Security > Microphone")
 
     say("files")
     check(os.path.exists(CONFIG_PATH), f"config: {CONFIG_PATH}", "no config; run boomerblaster init")

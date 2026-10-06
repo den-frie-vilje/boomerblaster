@@ -32,7 +32,8 @@ README.
    release's asset list, and run `boomerblaster init` on a real Mac to confirm
    the download and the page.
 2. `python3 -m py_compile boomerblaster`; `bash -n install.sh uninstall.sh`;
-   `shellcheck install.sh uninstall.sh`. If the listener page changed, in
+   `shellcheck install.sh uninstall.sh`; `make -C capture test` (about three
+   minutes; the clock-lock tests for the System source). If the listener page changed, in
    `listener/` run `pnpm install && pnpm build` and commit `dist/`; CI fails
    when the committed build differs from the source.
 3. Commit with a standalone message (what was decided and why, not just
@@ -42,6 +43,25 @@ README.
 4. `curl -sL https://github.com/den-frie-vilje/boomerblaster/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 256`,
    then update `url` and `sha256` in
    `den-frie-vilje/homebrew-tap/Formula/boomerblaster.rb`; commit and push.
+   The first release with the System source also needs the formula to build
+   and install the capture helper and the control script, where the command
+   looks for them (`capture_helper()` and `plugin_dir()`):
+
+   ```ruby
+   def install
+     bin.install "boomerblaster"
+     pkgshare.install "listener/dist" => "listener"
+     pkgshare.install "plug-ins"
+     system "make", "-C", "capture"
+     (libexec/"boomerblaster").install "capture/boomerblaster-capture"
+   end
+   ```
+
+   plus `brew install blackhole-2ch nowplaying-cli` in the caveats, as
+   optional extras rather than dependencies: a cask cannot be a formula
+   dependency, and the command only needs them when `sysaudio` is on.
+   `make -C capture test` on the release Mac, with BlackHole installed and
+   the terminal allowed to use the microphone, runs the real-device test.
 5. Dogfood: `brew update && brew upgrade boomerblaster`, `boomerblaster restart`,
    AirPlay something from a phone and listen on a second machine before
    considering the release done.

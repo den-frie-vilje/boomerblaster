@@ -59,3 +59,15 @@ jobs:
       - run: git diff --exit-code -- listener/dist
       - name: Marketing page is well formed
         run: python3 -c "import html.parser,sys; p=html.parser.HTMLParser(); p.feed(open('docs/index.html').read()); print('ok')"
+
+  capture:
+    # The system-audio capture helper: builds on macOS and its end-to-end
+    # clock-lock tests pass against a simulated drifting device and a real
+    # snapserver. No virtual audio device on the runner, so the BlackHole
+    # round trip is skipped there.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: brew install snapcast
+      - run: make -C capture
+      - run: BB_QUICK=1 python3 capture/test_capture.py
