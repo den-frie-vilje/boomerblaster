@@ -54,6 +54,21 @@ class Run:
         self.data = bytearray()
         self.status = []
         self.log = []
+        self.max_stall_ms = 0.0          # worst scheduling stall seen by the harness itself
+
+    def _watch_stalls(self, stop):
+        """Sleep 10 ms at a time and note how late each wake-up was. A busy or
+        throttled host (a shared CI runner) stalls every process on it, this
+        one included, and a stall longer than the helper's lead shows up as an
+        underrun or a resync that says nothing about the helper."""
+        last = time.monotonic()
+        while not stop.is_set():
+            time.sleep(0.010)
+            now = time.monotonic()
+            late = (now - last - 0.010) * 1000
+            if late > self.max_stall_ms:
+                self.max_stall_ms = late
+            last = now
 
     def _read_stdout(self, pipe):
         if self.stdout_hold:
@@ -83,13 +98,18 @@ class Run:
         self.t_start = time.monotonic()
         t1 = threading.Thread(target=self._read_stdout, args=(proc.stdout,))
         t2 = threading.Thread(target=self._read_stderr, args=(proc.stderr,))
+        stop = threading.Event()
+        t3 = threading.Thread(target=self._watch_stalls, args=(stop,), daemon=True)
         t1.start()
         t2.start()
+        t3.start()
         time.sleep(self.seconds)
         proc.send_signal(signal.SIGTERM)
         proc.wait(timeout=10)
+        stop.set()
         t1.join()
         t2.join()
+        t3.join()
         proc.stdout.close()
         proc.stderr.close()
         self.returncode = proc.returncode
@@ -188,6 +208,18 @@ def ppm(actual, expected):
     return (actual / expected - 1.0) * 1e6
 
 
+# The helper keeps 300 ms of audio ahead of real time; a host that stalls
+# longer than this stalls the simulator and the writer too, and the run says
+# nothing about the helper. Shared CI runners do this.
+STALL_LIMIT_MS = 150.0
+
+
+def skip_if_host_stalled(test, run):
+    if run.max_stall_ms > STALL_LIMIT_MS:
+        test.skipTest(f"the host stalled this process for {run.max_stall_ms:.0f} ms during the run; "
+                      "timing assertions are not meaningful on this machine right now")
+
+
 def pacing(run, after_s=1.0):
     """Spread (max - min, in seconds) of 'bytes delivered vs real time' over the
     reads after `after_s`, and the delivery rate's error in ppm over that span."""
@@ -208,6 +240,7 @@ class SimulatedDevice(unittest.TestCase):
         """The common assertions: the tone comes out at its real-world frequency,
         is continuous, the output is paced at the output rate, and the input
         buffering sits at the setpoint with nothing lost."""
+        skip_if_host_stalled(self, run)
         left = run.left()
         tones = tone_regions(left)
         self.assertEqual(len(tones), 1, f"expected one continuous tone, got regions {tones}")
@@ -259,6 +292,7 @@ class SimulatedDevice(unittest.TestCase):
         # 2048-frame callbacks (43 ms) with up to 25 ms of delivery jitter: the
         # 60 ms setpoint plus the lead must absorb it without a single underrun.
         run = Run(["--sim", "48000,ppm=150,jitter_ms=25,buffer=2048", "--buffer-ms", "90", "--status"], 20).go()
+        skip_if_host_stalled(self, run)
         left = run.left()
         tones = tone_regions(left)
         self.assertEqual(len(tones), 1, tones)
@@ -278,6 +312,7 @@ class SimulatedDevice(unittest.TestCase):
         # constant of about 9 s. After 45 s the tone must be within 60 ppm of
         # its real frequency and the buffering must not have run away.
         run = Run(["--sim", "48000,ppm=300,ts_ppm=0,jitter_ms=4", "--status"], 60).go()
+        skip_if_host_stalled(self, run)
         left = run.left()
         tones = tone_regions(left)
         self.assertEqual(len(tones), 1, tones)
@@ -299,6 +334,7 @@ class SimulatedDevice(unittest.TestCase):
         # running. The output must keep flowing on time, carry one stretch of
         # silence of about that length, and resume locked with no extra latency.
         run = Run(["--sim", "48000,ppm=100,jitter_ms=4,stall=6:0.4", "--status"], 20).go()
+        skip_if_host_stalled(self, run)
         left = run.left()
         tones = tone_regions(left)
         self.assertEqual(len(tones), 2, f"expected the tone in two pieces around the stall, got {tones}")
@@ -327,6 +363,7 @@ class SimulatedDevice(unittest.TestCase):
         # silence, which makes the kernel grow the pipe to hold it, so the
         # writer can then stay 300 ms ahead without ever blocking.
         run = Run(["--sim", "48000,ppm=0", "--status"], 6, stdout_hold=0.3).go()
+        skip_if_host_stalled(self, run)
         self.assertGreaterEqual(run.chunks[0][1], 65536, "first read should return the whole 64 KB preroll")
         self.assertEqual(run.final_status()["lead_ms"], 300.0)
         self.assertEqual(run.final_status()["underrun_frames"], 0)
@@ -370,6 +407,9 @@ class WithSnapserver(unittest.TestCase):
                     "[logging]\nsink = stderr\nfilter = *:info\n"
                 )
             proc = subprocess.Popen(["snapserver", "-c", conf], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+            watcher = Run([], 0)
+            stop = threading.Event()
+            threading.Thread(target=watcher._watch_stalls, args=(stop,), daemon=True).start()
             try:
                 time.sleep(10)
                 state = self.rpc(tcp, "Server.GetStatus")
@@ -377,8 +417,10 @@ class WithSnapserver(unittest.TestCase):
                 self.assertEqual(streams.get("Sim"), "playing", streams)
                 time.sleep(20)
             finally:
+                stop.set()
                 proc.send_signal(signal.SIGTERM)
                 out = proc.communicate(timeout=10)[0].decode("utf-8", "replace")
+            skip_if_host_stalled(self, watcher)
             resyncs = [l for l in out.splitlines() if "resync" in l.lower()]
             self.assertEqual(resyncs, [], "snapserver resynced:\n" + "\n".join(resyncs[:10]))
             self.assertIn("Sim", out)
@@ -429,6 +471,7 @@ class RealDevice(unittest.TestCase):
         finally:
             tone.send_signal(signal.SIGTERM)
             tone.wait(timeout=5)
+        skip_if_host_stalled(self, run)
         self.assertTrue(any("capturing" in l for l in run.log), run.log)
         left = run.left()
         tones = tone_regions(left)
