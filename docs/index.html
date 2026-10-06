@@ -3,17 +3,17 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="description" content="BoomerBlaster. Turn it up. Nobody will know. Cast from your phone; the whole floor listens in sync on their own headphones, from a web page on your Mac.">
-<meta property="og:title" content="BoomerBlaster">
+<meta name="description" content="BoomerBlaster Pro. Turn it up. Nobody will know. Cast from your phone; the whole floor listens in sync on their own headphones, from a web page on your Mac.">
+<meta property="og:title" content="BoomerBlaster Pro">
 <meta property="og:description" content="Turn it up. Nobody will know. Available now on brew.">
 <meta property="og:image" content="https://den-frie-vilje.github.io/boomerblaster/og.jpg">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="BoomerBlaster. Turn it up. Nobody will know.">
+<meta property="og:image:alt" content="BoomerBlaster Pro. Turn it up. Nobody will know.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="https://den-frie-vilje.github.io/boomerblaster/og.jpg">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📻</text></svg>">
-<title>BoomerBlaster</title>
+<title>BoomerBlaster Pro</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Rubik+Dirt&display=swap">
 <script>document.documentElement.classList.add("js");</script>
 <style>
@@ -72,16 +72,18 @@
   /* type */
   .eyebrow { font-size: 21px; line-height: 1.19; font-weight: 600; letter-spacing: .011em; color: var(--grey); margin-bottom: 8px; }
   h1, h2, h3 { font-weight: 600; letter-spacing: -.015em; text-wrap: balance; }
-  .hero-name { font-size: clamp(48px, 9vw, 96px); line-height: 1; letter-spacing: -.02em; font-weight: 700; }
+  .hero-name { font-size: clamp(24px, 3.2vw, 40px); line-height: 1.1; letter-spacing: -.01em; font-weight: 600; color: #f5f5f7; }
   .headline { font-size: clamp(32px, 6vw, 64px); line-height: 1.0625; letter-spacing: -.009em; }
   .headline.xl { font-size: clamp(40px, 7.5vw, 80px); line-height: 1.05; letter-spacing: -.015em; }
   .copy { font-size: clamp(19px, 2.2vw, 21px); line-height: 1.381; letter-spacing: .011em; color: var(--grey); max-width: 34em; }
   .copy strong { font-weight: 600; }
   .dark-s .copy strong { color: #f5f5f7; }
   .light-s .copy strong { color: var(--dark); }
-  .sleeve { font-family: var(--sleeve); font-weight: 400; text-transform: uppercase; letter-spacing: .02em; text-wrap: balance; }
-  .claim { font-size: clamp(26px, 4.4vw, 54px); line-height: 1.1; margin-top: 22px; color: #f5f5f7; transform: rotate(-1.5deg); }
-  .js .claim.rv.in { transform: rotate(-1.5deg); }
+  .sleeve { font-family: var(--sleeve); font-weight: 400; text-transform: uppercase; letter-spacing: .01em; text-wrap: balance; }
+  .titanium {
+    background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
   .more { color: var(--link-dark); font-size: 21px; line-height: 1.19; display: inline-flex; align-items: center; gap: .2em; }
   .more::after { content: "\203A"; font-size: 1.15em; line-height: 1; }
   .more:hover { text-decoration: underline; }
@@ -100,19 +102,26 @@
   .js .rv.in { opacity: 1; transform: none; }
 
   /* hero */
-  .hero { padding-top: 64px; padding-bottom: 0; text-align: center; }
-  .hero .availability { font-size: 17px; color: var(--grey); margin-top: 18px; }
+  .hero { padding-top: 72px; padding-bottom: 0; text-align: center; position: relative; }
+  .hero::before { content: ""; position: absolute; left: 50%; bottom: 0; width: min(1400px, 140vw); height: 70%; transform: translateX(-50%); background: radial-gradient(60% 55% at 50% 100%, rgba(120, 120, 128, .22) 0%, rgba(0, 0, 0, 0) 70%); pointer-events: none; }
+  .hero > * { position: relative; }
+  .hero .availability { font-size: 17px; color: var(--grey); margin-top: 22px; }
   .hero .headline { margin-top: 10px; }
   .hero .links { display: flex; gap: 34px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
-  .hero-product { margin: 24px auto 0; max-width: 1200px; overflow: hidden; }
-  .hero-product img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; display: block; transform-origin: 50% 70%; }
-  .js .hero-product img { opacity: 0; transform: scale(.78) translateY(6%); animation: emerge 2.4s cubic-bezier(.16, .8, .24, 1) .55s forwards; }
-  @keyframes emerge { 0% { opacity: 0; transform: scale(.78) translateY(6%); filter: brightness(0); } 40% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
-  .js .hero-product img.settled { opacity: 1; transform: none; filter: none; animation: none; }
-  @supports (animation-timeline: view()) {
-    .js .hero-product img.settled { animation: heroDrift linear both; animation-timeline: view(); animation-range: exit 0% exit 100%; }
+  /* the stage: the product pins for a few screen heights while the headline arrives over it */
+  .stage { height: 240vh; margin-top: 28px; --p: 1; }
+  .pin { position: sticky; top: 52px; height: calc(100vh - 52px); height: calc(100dvh - 52px); overflow: hidden; background: #000; }
+  .product { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%; transform-origin: 50% 70%; }
+  .js .product { opacity: 0; transform: scale(.82); animation: emerge 2.2s cubic-bezier(.16, .8, .24, 1) .5s forwards; }
+  @keyframes emerge { 0% { opacity: 0; transform: scale(.82); filter: brightness(0); } 45% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
+  .shade { position: absolute; inset: 0; background: #000; opacity: calc(var(--p) * .42); pointer-events: none; }
+  .lines { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: .06em; padding: 0 22px; text-align: center; margin: 0; }
+  .line {
+    display: block; font-size: clamp(40px, 9.5vw, 136px); line-height: 1; filter: drop-shadow(0 10px 40px rgba(0,0,0,.6));
+    --t: clamp(0, (var(--p) - (.18 + var(--i) * .3)) / .22, 1);
+    opacity: var(--t); transform: translateY(calc((1 - var(--t)) * 36px)) scale(calc(.94 + var(--t) * .06));
   }
-  @keyframes heroDrift { from { transform: scale(1); } to { transform: scale(1.06); } }
+  @media (max-width: 734px) { .stage { height: 200vh; } .line { font-size: clamp(36px, 11vw, 64px); } }
 
   /* story */
   .story { max-width: 720px; }
@@ -266,7 +275,10 @@
     html { scroll-behavior: auto; }
     .js .rv, .js .rv.in { opacity: 1; transform: none; transition: none; }
     .js .story .copy { opacity: 1; transition: none; }
-    .js .hero-product img { animation: none; opacity: 1; transform: none; }
+    .js .product { animation: none; opacity: 1; transform: none; }
+    .stage { height: auto; }
+    .pin { position: static; height: auto; aspect-ratio: 16 / 9; }
+    .line { opacity: 1; transform: none; }
     .card img, .localnav { transition: none; }
   }
 </style>
@@ -275,7 +287,7 @@
 
 <header class="localnav" id="localnav">
   <div class="in">
-    <a class="name" href="#top">BoomerBlaster</a>
+    <a class="name" href="#top">BoomerBlaster Pro</a>
     <nav>
       <a class="hide" href="#remember">Remember</a>
       <a class="hide" href="#how">How it works</a>
@@ -288,17 +300,23 @@
 
 <section class="hero dark-s" id="top">
   <div class="wrap">
-    <h1 class="hero-name rv">BoomerBlaster</h1>
-    <h2 class="claim sleeve rv" style="--d:.12s">Turn it up.<br>Nobody will know.</h2>
-    <p class="copy rv" style="--d:.22s; margin: 22px auto 0; text-align:center">Cast from your phone. The whole floor hears it in their own headphones, on the same beat, from a web page on your Mac. Crank your downtempo to eleven. Spare the interns.</p>
-    <p class="availability rv" style="--d:.3s">Available now. On brew.<sup>1</sup></p>
-    <div class="links rv" style="--d:.36s">
+    <h1 class="hero-name rv">BoomerBlaster Pro</h1>
+    <p class="copy rv" style="--d:.12s; margin: 18px auto 0; text-align:center">Cast from your phone. The whole floor hears it in their own headphones, on the same beat, from a web page on your Mac. Crank your downtempo to eleven. Spare the interns.</p>
+    <p class="availability rv" style="--d:.2s">Available now. On brew.<sup>1</sup></p>
+    <div class="links rv" style="--d:.26s">
       <a class="more" href="#remember">Remember</a>
       <a class="more" href="#get">Get it</a>
     </div>
   </div>
-  <div class="hero-product">
-    <img src="img/headphones.jpg" width="1376" height="768" alt="Dark over-ear headphones resting on a stand turned from pale oak, lit against black." fetchpriority="high">
+  <div class="stage" id="stage">
+    <div class="pin">
+      <img class="product" src="img/headphones.jpg" width="1376" height="768" alt="Dark over-ear headphones resting on a stand turned from pale oak, lit against black." fetchpriority="high">
+      <div class="shade" aria-hidden="true"></div>
+      <h2 class="lines sleeve" aria-label="Turn it up. Nobody will know.">
+        <span class="line titanium" style="--i:0">Turn it up.</span>
+        <span class="line titanium" style="--i:1">Nobody will know.</span>
+      </h2>
+    </div>
   </div>
 </section>
 
@@ -446,7 +464,7 @@
     <div class="center">
       <p class="eyebrow rv">Every generation</p>
       <h2 class="headline rv" style="--d:.08s">Boomers to zoomers.<br>One downbeat.</h2>
-      <p class="copy rv" style="--d:.16s; margin: 22px auto 0">Half the office once slept under a desk. Half the office thinks that is a wellness trend. BoomerBlaster is the first ghettoblaster both halves can agree on, because it keeps itself to itself.</p>
+      <p class="copy rv" style="--d:.16s; margin: 22px auto 0">Half the office once slept under a desk. Half the office thinks that is a wellness trend. BoomerBlaster Pro is the first ghettoblaster both halves can agree on, because it keeps itself to itself.</p>
     </div>
     <div class="gens">
       <div class="gen rv"><img src="img/coffee.jpg" width="1200" height="896" alt="A woman in her sixties, headphones on, typing at a standing desk and dancing." loading="lazy"><h3>Boomer.</h3><p>Hands on the keyboard. Hips in 1999. Quarterly report on schedule.</p></div>
@@ -466,7 +484,7 @@
       <thead>
         <tr>
           <td class="row"></td>
-          <th><span class="n">BoomerBlaster</span><span class="p">Free</span></th>
+          <th><span class="n">BoomerBlaster Pro</span><span class="p">Free</span></th>
           <th><span class="n">A Bluetooth speaker</span><span class="p">From 899 kr.</span></th>
           <th><span class="n">Silence</span><span class="p">Free</span></th>
         </tr>
@@ -489,12 +507,12 @@
 <section class="light-s" id="get" style="padding-top: 0">
   <div class="wrap">
     <div class="center">
-      <p class="eyebrow rv">Get BoomerBlaster</p>
+      <p class="eyebrow rv">Get BoomerBlaster Pro</p>
       <h2 class="headline rv" style="--d:.08s">Free. Like the office coffee.</h2>
     </div>
     <div class="get">
       <p class="price rv" style="--d:.12s">0 kr.<small>Or 0 kr./month with financing.</small></p>
-      <p class="copy rv" style="--d:.18s">Installs on the DJ's Mac with Homebrew, and on nobody else's with anything. Then AirPlay to "BoomerBlaster", send the address round, and watch the floor.</p>
+      <p class="copy rv" style="--d:.18s">Installs on the DJ's Mac with Homebrew, and on nobody else's with anything. Then AirPlay to "BoomerBlaster", send the address round, and watch the floor. Pro is the only model.<sup>8</sup></p>
       <pre class="code rv" style="--d:.24s"><button class="copybtn" type="button" data-copy>Copy</button>brew install den-frie-vilje/tap/boomerblaster
 boomerblaster init
 boomerblaster start
@@ -536,6 +554,7 @@ boomerblaster url</pre>
       <li>Spotify Connect through librespot requires a Spotify Premium account. librespot is firm about it. AirPlay works with whatever you already pay for, including nothing.</li>
       <li>Spotify and YouTube check that a Cast receiver carries a certificate signed by Google. Nobody outside Google can get one, so no open-source receiver passes. Spotify Connect covers most of what people want Chromecast for. A physical Chromecast with audio out into the Mac works, minus the cover art.</li>
       <li>iOS stops a web page's audio when the screen locks. Laptops are the better listener. Phones are the better DJ. The arrangement suits everyone, and it is also the only one available.</li>
+      <li>There is no BoomerBlaster without the Pro. The command, the formula and the AirPlay device are called BoomerBlaster, because typing Pro is for people with time.</li>
     </ol>
     <div class="legal">
       <p>The photographs on this page were generated with an image model. No office workers of any generation were asked to dance while working in the making of it; they did that on their own. "Low Tide (Office Edit)" and The Elevation Desks do not exist; their cover was generated too. Vinyl ripped at 128 kbit/s in 1999 plays fine; the vinyl itself is not recoverable. Spotify is a trademark of Spotify AB, AirPlay of Apple Inc., Chromecast of Google LLC; none of them had anything to do with this. This page parodies a register, not a company; it is not affiliated with, endorsed by, or acquired by Apple. Yet.</p>
@@ -600,8 +619,22 @@ boomerblaster url</pre>
   }
 
   // Local nav gains weight once the page has moved.
-  var hp = document.querySelector(".hero-product img");
-  if (hp) hp.addEventListener("animationend", function () { hp.classList.add("settled"); }, { once: true });
+  // The stage: scroll progress 0..1 while the product is pinned.
+  var stage = document.getElementById("stage");
+  if (stage && !reduce) {
+    stage.style.setProperty("--p", "0");
+    var ticking = false;
+    function stageProgress() {
+      ticking = false;
+      var rect = stage.getBoundingClientRect();
+      var travel = stage.offsetHeight - window.innerHeight;
+      var p = travel > 0 ? Math.min(1, Math.max(0, -rect.top / travel)) : 1;
+      stage.style.setProperty("--p", p.toFixed(4));
+    }
+    window.addEventListener("scroll", function () { if (!ticking) { ticking = true; requestAnimationFrame(stageProgress); } }, { passive: true });
+    window.addEventListener("resize", stageProgress);
+    stageProgress();
+  }
 
   var nav = document.getElementById("localnav");
   function onScroll() { nav.classList.toggle("scrolled", window.scrollY > 40); }
