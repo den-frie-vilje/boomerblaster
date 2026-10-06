@@ -24,12 +24,15 @@ Usage (as a Snapcast controlscript):
 """
 
 import hashlib
+import html
+import http.server
 import json
 import os
 import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 
 POLL_SECONDS = 1.5
 ART_SUBDIR = "np-art"
@@ -249,6 +252,160 @@ def stdin_loop():
             send({"jsonrpc": "2.0", "id": rid, "result": "ok"})
 
 
+# ----------------------------------------------------------- app picker
+#
+# A small page for the DJ: which application's sound goes out. Choosing one
+# writes the capture helper's tap file; the helper notices within a second
+# and re-taps. An empty choice means the virtual device (BlackHole) again.
+
+CAPTURE_HELPER = "boomerblaster-capture"
+PICKER_PAGE = """<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Which app plays out</title>
+<style>
+  body {{ font: 17px/1.4 -apple-system, system-ui, sans-serif; margin: 0; padding: 24px; background: #000; color: #f5f5f7; }}
+  h1 {{ font-size: 22px; margin: 0 0 6px; }}
+  p {{ color: #a1a1a6; margin: 0 0 18px; }}
+  form {{ max-width: 560px; }}
+  label {{ display: flex; align-items: center; gap: 12px; padding: 12px 0; border-top: 1px solid #333; cursor: pointer; }}
+  label small {{ color: #a1a1a6; margin-left: auto; text-align: right; }}
+  .playing {{ color: #30d158; }}
+  button {{ margin-top: 18px; font: inherit; padding: 10px 18px; border-radius: 10px; border: 0; background: #0a84ff; color: #fff; }}
+</style>
+<h1>Which app plays out</h1>
+<p>The sound of one application goes to the listeners; everything else on this Mac stays private. Apps making sound right now are marked.</p>
+<form method="post" action="select">
+{rows}
+<button>Use this one</button>
+</form>
+<script>
+setTimeout(function () {{ location.reload(); }}, 15000);
+</script>
+"""
+
+
+def picker_rows(apps, current):
+    rows = []
+    checked = ' checked' if current == "" else ''
+    rows.append(f'<label><input type="radio" name="app" value=""{checked}> The virtual device (BlackHole)</label>')
+    seen = set()
+    for app in sorted(apps, key=lambda a: (not a.get("playing"), (a.get("name") or "").lower())):
+        key = app.get("bundle") or f"pid:{app.get('pid')}"
+        if key in seen:
+            continue
+        seen.add(key)
+        checked = ' checked' if key == current else ''
+        mark = ' <span class="playing">&#9679; playing</span>' if app.get("playing") else ''
+        rows.append(
+            f'<label><input type="radio" name="app" value="{html.escape(key, quote=True)}"{checked}> '
+            f'{html.escape(app.get("name") or key)}{mark}<small>{html.escape(key)}</small></label>'
+        )
+    return "\n".join(rows)
+
+
+def valid_app_choice(value):
+    """A bundle id, pid:N, or empty. Nothing that could be a path or a flag."""
+    if value == "":
+        return True
+    if len(value) > 200 or value.startswith("-"):
+        return False
+    return all(c.isalnum() or c in ".-_: " for c in value)
+
+
+def read_tap_file(path):
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except OSError:
+        return ""
+
+
+def picker_server(address, list_apps, tap_file):
+    """An HTTP server for the picker; call serve_forever() on it."""
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass
+
+        def _send(self, status, ctype, body, extra=None):
+            data = body.encode() if isinstance(body, str) else body
+            self.send_response(status)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(len(data)))
+            self.send_header("Cache-Control", "no-store")
+            for k, v in (extra or {}).items():
+                self.send_header(k, v)
+            self.end_headers()
+            self.wfile.write(data)
+
+        def do_GET(self):
+            path = urllib.parse.urlparse(self.path).path
+            try:
+                apps = list_apps()
+            except Exception as exc:  # the helper may be missing
+                log(f"picker: cannot list apps: {exc}")
+                apps = []
+            current = read_tap_file(tap_file)
+            if path in ("/", "/index.html"):
+                self._send(200, "text/html; charset=utf-8", PICKER_PAGE.format(rows=picker_rows(apps, current)))
+            elif path == "/apps.json":
+                self._send(200, "application/json", json.dumps({"apps": apps, "current": current}))
+            else:
+                self._send(404, "text/plain", "not found")
+
+        def do_POST(self):
+            path = urllib.parse.urlparse(self.path).path
+            if path != "/select":
+                return self._send(404, "text/plain", "not found")
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length).decode(errors="replace") if length else ""
+            form = urllib.parse.parse_qs(body, keep_blank_values=True)
+            value = (form.get("app") or [""])[0].strip()
+            if not valid_app_choice(value):
+                return self._send(400, "text/plain", "not an application")
+            os.makedirs(os.path.dirname(tap_file) or ".", exist_ok=True)
+            with open(tap_file, "w") as fh:
+                fh.write(value + "\n")
+            log(f"picker: capture set to {value or 'the virtual device'}")
+            self._send(303, "text/plain", "", {"Location": "/"})
+
+    http.server.ThreadingHTTPServer.allow_reuse_address = True
+    return http.server.ThreadingHTTPServer(address, Handler)
+
+
+def find_capture_helper():
+    here = os.path.dirname(os.path.realpath(__file__))
+    home = os.path.expanduser("~")
+    for candidate in (
+        os.path.join(here, "..", "libexec", "boomerblaster", CAPTURE_HELPER),
+        os.path.join(here, "..", "capture", CAPTURE_HELPER),
+        os.path.join(home, "Library", "Application Support", "boomerblaster", CAPTURE_HELPER),
+    ):
+        candidate = os.path.normpath(candidate)
+        if os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def list_apps_via_helper():
+    helper = find_capture_helper()
+    if not helper:
+        return []
+    out = subprocess.run([helper, "--list-apps"], capture_output=True, text=True, timeout=10)
+    return json.loads(out.stdout) if out.returncode == 0 else []
+
+
+def start_picker(port, tap_file):
+    try:
+        server = picker_server(("0.0.0.0", port), list_apps=list_apps_via_helper, tap_file=tap_file)
+    except OSError as exc:
+        log(f"picker: cannot listen on port {port}: {exc}")
+        return
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log(f"picker: app picker on port {port}")
+
+
 def main():
     global NOWPLAYING, _last_sig, _last_props
     www_dir = os.environ.get("BOOMERBLASTER_WWW", "")
@@ -260,6 +417,16 @@ def main():
         home = os.path.expanduser("~")
         www_dir = os.path.join(home, "Library", "Application Support",
                                "boomerblaster", "www")
+
+    # --picker PORT --tap-file PATH: serve the app picker (see above).
+    picker_port, tap_file = 0, ""
+    for i, a in enumerate(args):
+        if a == "--picker" and i + 1 < len(args):
+            picker_port = int(args[i + 1])
+        if a == "--tap-file" and i + 1 < len(args):
+            tap_file = args[i + 1]
+    if picker_port and tap_file:
+        start_picker(picker_port, tap_file)
 
     NOWPLAYING = which("nowplaying-cli")
     send({"jsonrpc": "2.0", "method": "Plugin.Stream.Ready"})

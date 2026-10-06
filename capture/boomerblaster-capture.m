@@ -21,6 +21,10 @@
 #import <AVFoundation/AVFoundation.h>
 #include <AudioToolbox/AudioToolbox.h>
 #include <CoreAudio/CoreAudio.h>
+#include <CoreAudio/AudioHardwareTapping.h>
+#import <CoreAudio/CATapDescription.h>
+#include <libproc.h>
+#include <sys/stat.h>
 #include <mach/mach_time.h>
 #include <mach/thread_policy.h>
 #include <mach/thread_act.h>
@@ -517,6 +521,20 @@ typedef struct {
     _Atomic uint64_t generation;// bumped whenever the input chain restarted
     pthread_t thread;
     uint64_t render_errors;
+    // process tap mode (macOS 14.2+): capture one application's audio
+    char tap_spec[256];         // "pid:N", a bundle id, or part of a name; empty = use the device
+    const char *tap_file;       // where the spec is read from, re-read when it changes
+    time_t tap_file_mtime;
+    AudioObjectID preset_dev;   // the aggregate device carrying the tap; device_start uses it instead of the name
+    AudioObjectID tap_id, agg_id;
+    AudioDeviceIOProcID ioproc; // the tap device is read with a HAL IOProc, not the audio unit
+    int interleaved;
+    double rate;                // the running device's nominal rate
+    pid_t tapped[64];           // which processes the current tap covers
+    int tapped_n;
+    _Atomic int procs_changed;  // the system's process list changed
+    _Atomic int devices_changed;// the system's device list changed
+    _Atomic int finished;       // the device thread has returned
 } device_t;
 
 static void device_stop(device_t *d);
@@ -542,19 +560,264 @@ static OSStatus input_callback(void *refcon, AudioUnitRenderActionFlags *flags, 
     return noErr;
 }
 
+// The running device changed something. Devices fire these freely (an
+// aggregate announces it is alive as it settles), so restart the input only
+// for what matters: the device is gone, or its rate is no longer ours.
 static OSStatus device_listener(AudioObjectID obj, UInt32 n, const AudioObjectPropertyAddress *addrs, void *refcon) {
-    (void)obj; (void)n; (void)addrs;
     device_t *d = refcon;
-    atomic_store(&d->reconfigure, 1);
+    for (UInt32 i = 0; i < n; i++) {
+        if (addrs[i].mSelector == kAudioDevicePropertyDeviceIsAlive) {
+            UInt32 alive = 1, size = sizeof alive;
+            if (AudioObjectGetPropertyData(obj, &addrs[i], 0, NULL, &size, &alive) != noErr || !alive)
+                atomic_store(&d->reconfigure, 2);
+        } else if (addrs[i].mSelector == kAudioDevicePropertyNominalSampleRate) {
+            Float64 rate = 0;
+            UInt32 size = sizeof rate;
+            if (AudioObjectGetPropertyData(obj, &addrs[i], 0, NULL, &size, &rate) != noErr || rate != d->rate)
+                atomic_store(&d->reconfigure, 3);
+        } else {
+            atomic_store(&d->reconfigure, 4);
+        }
+    }
     return noErr;
 }
 
-// The device list changed: only interesting while ours is missing.
+// The device list changed. Only a flag: this fires while our own tap device
+// is being created, so whether it matters (nothing running, device mode) is
+// decided on the device thread at the next poll.
 static OSStatus devices_listener(AudioObjectID obj, UInt32 n, const AudioObjectPropertyAddress *addrs, void *refcon) {
     (void)obj; (void)n; (void)addrs;
     device_t *d = refcon;
-    if (!d->unit) atomic_store(&d->reconfigure, 1);
+    atomic_store(&d->devices_changed, 1);
     return noErr;
+}
+
+// ---------------------------------------------------------- process taps
+
+typedef struct { pid_t pid; AudioObjectID obj; char bundle[256]; char name[256]; int playing; } procinfo_t;
+
+// Every process Core Audio knows about, with pid, bundle id, executable name
+// and whether it is producing output right now.
+static int list_processes(procinfo_t **out) {
+    AudioObjectPropertyAddress addr = { kAudioHardwarePropertyProcessObjectList, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    UInt32 size = 0;
+    if (AudioObjectGetPropertyDataSize(kAudioObjectSystemObject, &addr, 0, NULL, &size) != noErr || size == 0) { *out = NULL; return 0; }
+    AudioObjectID *objs = malloc(size);
+    if (AudioObjectGetPropertyData(kAudioObjectSystemObject, &addr, 0, NULL, &size, objs) != noErr) { free(objs); *out = NULL; return 0; }
+    int n = (int)(size / sizeof(AudioObjectID));
+    procinfo_t *list = calloc((size_t)n, sizeof(procinfo_t));
+    int m = 0;
+    for (int i = 0; i < n; i++) {
+        procinfo_t *p = &list[m];
+        p->obj = objs[i];
+        AudioObjectPropertyAddress a = { kAudioProcessPropertyPID, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+        UInt32 sz = sizeof p->pid;
+        if (AudioObjectGetPropertyData(objs[i], &a, 0, NULL, &sz, &p->pid) != noErr || p->pid <= 0) continue;
+        a.mSelector = kAudioProcessPropertyBundleID;
+        CFStringRef bundle = NULL;
+        sz = sizeof bundle;
+        if (AudioObjectGetPropertyData(objs[i], &a, 0, NULL, &sz, &bundle) == noErr && bundle) {
+            CFStringGetCString(bundle, p->bundle, sizeof p->bundle, kCFStringEncodingUTF8);
+            CFRelease(bundle);
+        }
+        a.mSelector = kAudioProcessPropertyIsRunningOutput;
+        UInt32 running = 0;
+        sz = sizeof running;
+        if (AudioObjectGetPropertyData(objs[i], &a, 0, NULL, &sz, &running) == noErr) p->playing = running != 0;
+        proc_name(p->pid, p->name, sizeof p->name);
+        m++;
+    }
+    free(objs);
+    *out = list;
+    return m;
+}
+
+static void json_escape(const char *in, char *out, size_t cap) {
+    size_t j = 0;
+    for (size_t i = 0; in[i] && j + 6 < cap; i++) {
+        unsigned char c = (unsigned char)in[i];
+        if (c == '"' || c == '\\') { out[j++] = '\\'; out[j++] = (char)c; }
+        else if (c < 0x20) { j += (size_t)snprintf(out + j, cap - j, "\\u%04x", c); }
+        else out[j++] = (char)c;
+    }
+    out[j] = 0;
+}
+
+static void list_apps_json(void) {
+    procinfo_t *procs = NULL;
+    int n = list_processes(&procs);
+    printf("[");
+    int first = 1;
+    for (int i = 0; i < n; i++) {
+        char name[1024], bundle[1024];
+        json_escape(procs[i].name, name, sizeof name);
+        json_escape(procs[i].bundle, bundle, sizeof bundle);
+        printf("%s{\"pid\":%d,\"name\":\"%s\",\"bundle\":\"%s\",\"playing\":%s}",
+               first ? "" : ",", (int)procs[i].pid, name, bundle, procs[i].playing ? "true" : "false");
+        first = 0;
+    }
+    printf("]\n");
+    free(procs);
+}
+
+static int tap_api_available(void) {
+    if (@available(macOS 14.2, *)) return 1;
+    return 0;
+}
+
+// Which processes a spec names: "pid:N"; else an exact bundle id or
+// executable name, else a case-insensitive substring of either (so
+// "chrome" takes every Chrome helper, which is where a browser's sound is).
+static int resolve_tap_spec(const char *spec, procinfo_t *procs, int n, procinfo_t **matches, int max) {
+    int m = 0;
+    if (strncmp(spec, "pid:", 4) == 0) {
+        pid_t pid = (pid_t)atoi(spec + 4);
+        for (int i = 0; i < n && m < max; i++) if (procs[i].pid == pid) matches[m++] = &procs[i];
+        return m;
+    }
+    for (int i = 0; i < n && m < max; i++)
+        if (strcasecmp(procs[i].bundle, spec) == 0 || strcasecmp(procs[i].name, spec) == 0) matches[m++] = &procs[i];
+    if (m) return m;
+    for (int i = 0; i < n && m < max; i++)
+        if ((procs[i].bundle[0] && ci_contains(procs[i].bundle, spec)) || (procs[i].name[0] && ci_contains(procs[i].name, spec)))
+            matches[m++] = &procs[i];
+    return m;
+}
+
+static void tap_destroy(device_t *d) {
+    if (@available(macOS 14.2, *)) {
+        if (d->agg_id) { AudioHardwareDestroyAggregateDevice(d->agg_id); d->agg_id = 0; }
+        if (d->tap_id) { AudioHardwareDestroyProcessTap(d->tap_id); d->tap_id = 0; }
+    }
+    d->preset_dev = 0;
+    d->tapped_n = 0;
+}
+
+// A stereo mixdown tap of the given processes, wrapped in a private
+// aggregate device (clocked by the default output device, with drift
+// compensation on the tap) that the rest of the capture reads like any
+// input device. Returns the aggregate's id, or 0.
+static AudioObjectID tap_create(device_t *d, procinfo_t **procs, int n) {
+  if (@available(macOS 14.2, *)) {
+    NSMutableArray *objs = [NSMutableArray array];
+    for (int i = 0; i < n; i++) [objs addObject:@(procs[i]->obj)];
+    CATapDescription *desc = [[CATapDescription alloc] initStereoMixdownOfProcesses:objs];
+    desc.name = @"BoomerBlaster";
+    desc.privateTap = YES;
+    desc.muteBehavior = CATapUnmuted;
+    AudioObjectID tap = 0;
+    OSStatus st = AudioHardwareCreateProcessTap(desc, &tap);
+    if (st != noErr) { logmsg("cannot create a process tap (%d)", (int)st); return 0; }
+    AudioObjectID out = 0;
+    UInt32 size = sizeof out;
+    AudioObjectPropertyAddress a = { kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    AudioObjectGetPropertyData(kAudioObjectSystemObject, &a, 0, NULL, &size, &out);
+    CFStringRef uid = NULL;
+    size = sizeof uid;
+    a.mSelector = kAudioDevicePropertyDeviceUID;
+    if (out) AudioObjectGetPropertyData(out, &a, 0, NULL, &size, &uid);
+    NSMutableDictionary *agg = [@{
+        @kAudioAggregateDeviceNameKey: @"BoomerBlaster Tap",
+        @kAudioAggregateDeviceUIDKey: [NSUUID UUID].UUIDString,
+        @kAudioAggregateDeviceIsPrivateKey: @YES,
+        @kAudioAggregateDeviceIsStackedKey: @NO,
+        @kAudioAggregateDeviceTapAutoStartKey: @YES,
+        @kAudioAggregateDeviceTapListKey: @[ @{ @kAudioSubTapDriftCompensationKey: @YES, @kAudioSubTapUIDKey: desc.UUID.UUIDString } ],
+    } mutableCopy];
+    if (uid) {
+        agg[@kAudioAggregateDeviceSubDeviceListKey] = @[ @{ @kAudioSubDeviceUIDKey: (__bridge NSString *)uid } ];
+        CFRelease(uid);
+    }
+    AudioObjectID aggid = 0;
+    st = AudioHardwareCreateAggregateDevice((__bridge CFDictionaryRef)agg, &aggid);
+    if (st != noErr) { logmsg("cannot create the tap's aggregate device (%d)", (int)st); AudioHardwareDestroyProcessTap(tap); return 0; }
+    d->tap_id = tap;
+    d->agg_id = aggid;
+    d->tapped_n = 0;
+    for (int i = 0; i < n && i < 64; i++) d->tapped[d->tapped_n++] = procs[i]->pid;
+    return aggid;
+  }
+  return 0;
+}
+
+static int check_tap(void) {
+    if (!tap_api_available()) { printf("{\"available\":false,\"reason\":\"needs macOS 14.2 or later\"}\n"); return 3; }
+    if (@available(macOS 14.2, *)) {
+        // Creating a tap is what asks macOS for the System Audio Recording permission.
+        CATapDescription *desc = [[CATapDescription alloc] initMonoGlobalTapButExcludeProcesses:@[]];
+        desc.name = @"BoomerBlaster check";
+        desc.privateTap = YES;
+        AudioObjectID tap = 0;
+        OSStatus st = AudioHardwareCreateProcessTap(desc, &tap);
+        if (st != noErr) { printf("{\"available\":true,\"ok\":false,\"status\":%d}\n", (int)st); return 3; }
+        AudioHardwareDestroyProcessTap(tap);
+        printf("{\"available\":true,\"ok\":true}\n");
+    }
+    return 0;
+}
+
+static OSStatus procs_listener(AudioObjectID obj, UInt32 n, const AudioObjectPropertyAddress *addrs, void *refcon) {
+    (void)obj; (void)n; (void)addrs;
+    device_t *d = refcon;
+    atomic_store(&d->procs_changed, 1);
+    return noErr;
+}
+
+// Re-reads the tap file when it changed; returns 1 when the spec changed.
+static int tap_file_poll(device_t *d) {
+    if (!d->tap_file) return 0;
+    struct stat st;
+    char spec[256] = "";
+    if (stat(d->tap_file, &st) == 0) {
+        if (st.st_mtime == d->tap_file_mtime) return 0;
+        d->tap_file_mtime = st.st_mtime;
+        FILE *fh = fopen(d->tap_file, "r");
+        if (fh) {
+            if (!fgets(spec, sizeof spec, fh)) spec[0] = 0;
+            fclose(fh);
+        }
+    } else if (d->tap_file_mtime == 0 && d->tap_spec[0] == 0) {
+        return 0;
+    } else {
+        d->tap_file_mtime = 0;
+    }
+    // trim
+    size_t len = strlen(spec);
+    while (len && (spec[len - 1] == '\n' || spec[len - 1] == '\r' || spec[len - 1] == ' ')) spec[--len] = 0;
+    char *start = spec;
+    while (*start == ' ') start++;
+    if (strcmp(start, d->tap_spec) == 0) return 0;
+    snprintf(d->tap_spec, sizeof d->tap_spec, "%s", start);
+    return 1;
+}
+
+// In tap mode: do the processes the spec names differ from the tapped ones?
+// Builds the tap for them if so and returns 1; returns 0 when nothing changed.
+static int tap_refresh(device_t *d, int force) {
+    procinfo_t *procs = NULL;
+    int n = list_processes(&procs);
+    procinfo_t *matches[64];
+    int m = resolve_tap_spec(d->tap_spec, procs, n, matches, 64);
+    int same = !force && m == d->tapped_n;
+    for (int i = 0; same && i < m; i++) {
+        int found = 0;
+        for (int j = 0; j < d->tapped_n; j++) if (d->tapped[j] == matches[i]->pid) found = 1;
+        same = found;
+    }
+    if (same) { free(procs); return 0; }
+    logmsg("tap set changed: %d match(es) for \"%s\", %d tapped before%s", m, d->tap_spec, d->tapped_n, force ? " (forced)" : "");
+    tap_destroy(d);
+    if (m > 0) {
+        d->preset_dev = tap_create(d, matches, m);
+        if (d->preset_dev) {
+            char who[512] = "";
+            for (int i = 0; i < m && strlen(who) < 400; i++)
+                snprintf(who + strlen(who), sizeof who - strlen(who), "%s%s (pid %d)", i ? ", " : "", matches[i]->name, (int)matches[i]->pid);
+            logmsg("tapping %s", who);
+        }
+    }
+    free(procs);
+    return 1;
 }
 
 // All CoreAudio calls happen here, off the writer thread: coreaudiod can
@@ -564,13 +827,35 @@ static void *device_thread(void *arg) {
     device_t *d = arg;
     uint64_t last_try = 0;
     int warned_missing = 0;
+    uint64_t last_poll = 0;
     while (g_running) {
+        uint64_t t = now_ns();
+        if (t - last_poll >= 500000000ull) {
+            last_poll = t;
+            int spec_changed = tap_file_poll(d);
+            if (d->tap_spec[0]) {
+                if (tap_api_available()) {
+                    if (spec_changed || atomic_exchange(&d->procs_changed, 0) || (!d->ioproc && d->tapped_n == 0)) {
+                        if (tap_refresh(d, spec_changed)) atomic_store(&d->reconfigure, 6);
+                    }
+                } else if (spec_changed) {
+                    logmsg("process taps need macOS 14.2 or later; using the device \"%s\" instead", d->name);
+                    d->tap_spec[0] = 0;
+                }
+            } else if (spec_changed) {
+                tap_destroy(d);
+                atomic_store(&d->reconfigure, 7);
+            }
+            if (atomic_exchange(&d->devices_changed, 0) && !d->tap_spec[0] && !d->unit && !d->ioproc)
+                atomic_store(&d->reconfigure, 5);   // our device may have appeared
+        }
         if (atomic_load(&d->reconfigure)) {
             uint64_t now = now_ns();
             if (now - last_try >= 1000000000ull) {
                 last_try = now;
-                atomic_store(&d->reconfigure, 0);
-                int had = d->unit != NULL;
+                int reason = atomic_exchange(&d->reconfigure, 0);
+                int had = d->unit != NULL || d->ioproc != NULL;
+                if (had) logmsg("restarting the input (reason %d)", reason);
                 double old_rate;
                 { uint64_t b = atomic_load(&d->rate_bits); memcpy(&old_rate, &b, sizeof b); }
                 device_stop(d);
@@ -583,8 +868,13 @@ static void *device_thread(void *arg) {
                 atomic_fetch_add(&d->generation, 1);
                 if (rate > 0) {
                     if (!had || rate != old_rate)
-                        logmsg("capturing \"%s\" at %.0f Hz, %u channel(s)", d->name, rate, d->channels);
+                        logmsg("capturing %s at %.0f Hz, %u channel(s)", d->preset_dev ? "the tap" : d->name, rate, d->channels);
                     warned_missing = 0;
+                } else if (d->tap_spec[0]) {
+                    if (!warned_missing)
+                        logmsg("no running application matches \"%s\"; sending silence until one appears", d->tap_spec);
+                    warned_missing = 1;
+                    // the process-list listener and the poll above retry
                 } else {
                     if (!warned_missing)
                         logmsg(had ? "device \"%s\" went away; sending silence until it returns"
@@ -597,10 +887,17 @@ static void *device_thread(void *arg) {
         usleep(20000);
     }
     device_stop(d);
+    tap_destroy(d);
+    atomic_store(&d->finished, 1);
     return NULL;
 }
 
 static void device_stop(device_t *d) {
+    if (d->ioproc) {
+        AudioDeviceStop(d->dev, d->ioproc);
+        AudioDeviceDestroyIOProcID(d->dev, d->ioproc);
+        d->ioproc = NULL;
+    }
     if (d->unit) {
         AudioOutputUnitStop(d->unit);
         AudioUnitUninitialize(d->unit);
@@ -628,11 +925,70 @@ static void device_stop(device_t *d) {
 static double device_start(device_t *d) {
     device_stop(d);
     atomic_store(&d->reconfigure, 0);
-    d->dev = find_device(d->name, kAudioObjectPropertyScopeInput);
+    d->dev = d->preset_dev ? d->preset_dev : find_device(d->name, kAudioObjectPropertyScopeInput);
     if (!d->dev) return 0;
     double rate = device_rate(d->dev);
     UInt32 dev_channels = device_channels(d->dev, kAudioObjectPropertyScopeInput);
     d->channels = dev_channels >= 2 ? 2 : 1;
+
+    if (d->preset_dev) {
+        // The tap's aggregate device: read it straight from the HAL. (The
+        // output audio unit never gets going on one of these.)
+        AudioStreamBasicDescription fmt = {0};
+        UInt32 size = sizeof fmt;
+        AudioObjectPropertyAddress fa = { kAudioDevicePropertyStreamFormat, kAudioObjectPropertyScopeInput, kAudioObjectPropertyElementMain };
+        if (AudioObjectGetPropertyData(d->dev, &fa, 0, NULL, &size, &fmt) != noErr) { logmsg("cannot read the tap's format"); device_stop(d); return 0; }
+        if (fmt.mFormatID != kAudioFormatLinearPCM || !(fmt.mFormatFlags & kAudioFormatFlagIsFloat) || fmt.mBitsPerChannel != 32) {
+            logmsg("the tap delivers an unexpected format (id %u, flags %u, %u bits)", (unsigned)fmt.mFormatID, (unsigned)fmt.mFormatFlags, (unsigned)fmt.mBitsPerChannel);
+            device_stop(d);
+            return 0;
+        }
+        rate = fmt.mSampleRate;
+        d->interleaved = !(fmt.mFormatFlags & kAudioFormatFlagIsNonInterleaved);
+        d->channels = fmt.mChannelsPerFrame >= 2 ? 2 : 1;
+        UInt32 frames = 512;
+        AudioObjectPropertyAddress ba = { kAudioDevicePropertyBufferFrameSize, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+        AudioObjectSetPropertyData(d->dev, &ba, 0, NULL, sizeof frames, &frames);
+        d->max_frames = 8192;
+        d->interleave = calloc((size_t)d->max_frames * 2, sizeof(float));
+        UInt32 fmt_channels = fmt.mChannelsPerFrame;
+        OSStatus st = AudioDeviceCreateIOProcIDWithBlock(&d->ioproc, d->dev, NULL,
+            ^(const AudioTimeStamp *now, const AudioBufferList *input, const AudioTimeStamp *input_time,
+              AudioBufferList *output, const AudioTimeStamp *output_time) {
+                (void)now; (void)output; (void)output_time;
+                if (!input || input->mNumberBuffers == 0) return;
+                UInt32 n;
+                const float *L, *R;
+                UInt32 strideL, strideR;
+                if (d->interleaved) {
+                    const AudioBuffer *b = &input->mBuffers[0];
+                    UInt32 ch = b->mNumberChannels ? b->mNumberChannels : fmt_channels;
+                    n = b->mDataByteSize / (sizeof(float) * ch);
+                    L = b->mData;
+                    R = ch > 1 ? L + 1 : L;
+                    strideL = strideR = ch;
+                } else {
+                    n = input->mBuffers[0].mDataByteSize / sizeof(float);
+                    L = input->mBuffers[0].mData;
+                    R = input->mNumberBuffers > 1 ? input->mBuffers[1].mData : L;
+                    strideL = strideR = 1;
+                }
+                if (n > d->max_frames) n = d->max_frames;
+                for (UInt32 i = 0; i < n; i++) {
+                    d->interleave[i * 2] = L[i * strideL];
+                    d->interleave[i * 2 + 1] = R[i * strideR];
+                }
+                int valid = (input_time->mFlags & kAudioTimeStampSampleTimeValid) && (input_time->mFlags & kAudioTimeStampHostTimeValid);
+                input_deliver(d->in, d->interleave, n, host_to_ns(input_time->mHostTime), input_time->mSampleTime, valid);
+            });
+        if (st != noErr) { logmsg("cannot create an IO proc on the tap (%d)", (int)st); device_stop(d); return 0; }
+        st = AudioDeviceStart(d->dev, d->ioproc);
+        if (st != noErr) { logmsg("cannot start the tap (%d)", (int)st); device_stop(d); return 0; }
+        d->rate = rate;
+        AudioObjectPropertyAddress a2 = { kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+        AudioObjectAddPropertyListener(d->dev, &a2, device_listener, d);
+        return rate;
+    }
 
     AudioComponentDescription desc = { kAudioUnitType_Output, kAudioUnitSubType_HALOutput, kAudioUnitManufacturer_Apple, 0, 0 };
     AudioComponent comp = AudioComponentFindNext(NULL, &desc);
@@ -678,6 +1034,7 @@ static double device_start(device_t *d) {
 
     AudioObjectPropertyAddress a1 = { kAudioDevicePropertyNominalSampleRate, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
     AudioObjectPropertyAddress a2 = { kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+    d->rate = rate;
     AudioObjectAddPropertyListener(d->dev, &a1, device_listener, d);
     AudioObjectAddPropertyListener(d->dev, &a2, device_listener, d);
     return rate;
@@ -1028,7 +1385,9 @@ static int writer_tick(writer_t *w, input_t *in, uint64_t now, float *fbuf, int1
 // ------------------------------------------------------------------- main
 
 static void usage(void) {
-    fputs("usage: boomerblaster-capture [--device NAME] [--rate HZ] [--lead-ms N] [--buffer-ms N] [--status]\n"
+    fputs("usage: boomerblaster-capture [--device NAME] [--tap APP | --tap-file PATH] [--rate HZ] [--lead-ms N] [--buffer-ms N] [--status]\n"
+          "       APP is pid:N, a bundle id, or part of an application's name; the tap file holds the same, empty = use the device\n"
+          "       boomerblaster-capture --list-apps | --check-tap\n"
           "       boomerblaster-capture --sim RATE[,ppm=P,ts_ppm=T,jitter_ms=J,buffer=N,tone=HZ,stall=AT:DUR] ...\n"
           "       boomerblaster-capture --list | --check [--device NAME] | --tone-to NAME [--tone-hz HZ]\n"
           "Writes s16le stereo PCM at --rate (default 44100) to stdout, locked to the system clock.\n",
@@ -1070,7 +1429,8 @@ int main(int argc, char **argv) {
         const char *devname = "BlackHole 2ch";
         double out_rate = 44100, lead_ms = 300, buffer_ms = 60, tone_hz = 1000, status_ms = 1000;
         int status = 0, do_list = 0, do_check = 0;
-        const char *tone_to = NULL, *sim_spec = NULL;
+        const char *tone_to = NULL, *sim_spec = NULL, *tap_spec = NULL, *tap_file = NULL;
+        int do_list_apps = 0, do_check_tap = 0;
         for (int i = 1; i < argc; i++) {
             const char *a = argv[i];
             const char *v = i + 1 < argc ? argv[i + 1] : NULL;
@@ -1084,12 +1444,18 @@ int main(int argc, char **argv) {
             else if (strcmp(a, "--status") == 0) status = 1;
             else if (strcmp(a, "--status-ms") == 0 && v) { status = 1; status_ms = atof(v); i++; }
             else if (strcmp(a, "--list") == 0) do_list = 1;
+            else if (strcmp(a, "--list-apps") == 0) do_list_apps = 1;
+            else if (strcmp(a, "--check-tap") == 0) do_check_tap = 1;
+            else if (strcmp(a, "--tap") == 0 && v) { tap_spec = v; i++; }
+            else if (strcmp(a, "--tap-file") == 0 && v) { tap_file = v; i++; }
             else if (strcmp(a, "--check") == 0) do_check = 1;
             else if (strcmp(a, "--help") == 0 || strcmp(a, "-h") == 0) { usage(); return 0; }
             else { usage(); return 64; }
         }
         if (out_rate < 8000 || out_rate > 192000) { logmsg("--rate must be 8000..192000"); return 64; }
         if (do_list) { list_devices(); return 0; }
+        if (do_list_apps) { list_apps_json(); return 0; }
+        if (do_check_tap) return check_tap();
         if (do_check) {
             AudioObjectID dev = find_device(devname, kAudioObjectPropertyScopeInput);
             char name[256] = "";
@@ -1140,9 +1506,16 @@ int main(int argc, char **argv) {
         } else {
             snprintf(dev.name, sizeof dev.name, "%s", devname);
             dev.in = &in;
+            dev.tap_file = tap_file;
+            if (tap_spec) snprintf(dev.tap_spec, sizeof dev.tap_spec, "%s", tap_spec);
             input_reset(&in);
-            logmsg("output %.0f Hz, lead %.0f ms, buffer %.0f ms; opening \"%s\"", out_rate, lead_ms, buffer_ms, dev.name);
-            request_permission(&dev);
+            logmsg("output %.0f Hz, lead %.0f ms, buffer %.0f ms; opening %s%s%s", out_rate, lead_ms, buffer_ms,
+                   tap_spec ? "a tap of \"" : "\"", tap_spec ? tap_spec : dev.name, tap_file ? "\" (following the tap file)" : "\"");
+            if (!tap_spec && !tap_file) request_permission(&dev);
+            if (tap_api_available()) {
+                AudioObjectPropertyAddress pa = { kAudioHardwarePropertyProcessObjectList, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
+                AudioObjectAddPropertyListener(kAudioObjectSystemObject, &pa, procs_listener, &dev);
+            }
             // Notice new devices so a missing one is picked up when it arrives.
             AudioObjectPropertyAddress a = { kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain };
             AudioObjectAddPropertyListener(kAudioObjectSystemObject, &a, devices_listener, &dev);
@@ -1195,8 +1568,19 @@ int main(int argc, char **argv) {
             sleep_until_ns(next);
         }
         g_running = 0;
-        if (sim_spec) pthread_join(sim.thread, NULL);
-        else pthread_join(dev.thread, NULL);
+        if (sim_spec) {
+            pthread_join(sim.thread, NULL);
+        } else {
+            // coreaudiod can hold the device thread for as long as a permission
+            // prompt stays open; do not let that keep us from exiting.
+            for (int i = 0; i < 100 && !atomic_load(&dev.finished); i++) usleep(20000);
+            if (!atomic_load(&dev.finished)) {
+                logmsg("the audio system is not answering; exiting without closing the device");
+                fflush(stderr);
+                _exit(0);
+            }
+            pthread_join(dev.thread, NULL);
+        }
         return 0;
     }
 }

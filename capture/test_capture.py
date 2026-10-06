@@ -211,7 +211,7 @@ def ppm(actual, expected):
 # The helper keeps 300 ms of audio ahead of real time; a host that stalls
 # longer than this stalls the simulator and the writer too, and the run says
 # nothing about the helper. Shared CI runners do this.
-STALL_LIMIT_MS = 150.0
+STALL_LIMIT_MS = float(os.environ.get("BB_STALL_LIMIT_MS", "150"))
 
 
 def skip_if_host_stalled(test, run):
@@ -487,6 +487,124 @@ class RealDevice(unittest.TestCase):
         spread, rate_err = pacing(run)
         self.assertLess(spread, 0.040)
         self.assertLess(abs(rate_err), 300)
+
+
+def tap_ready():
+    """Process taps need macOS 14.2 and the System Audio Recording permission;
+    the helper's --check-tap reports both."""
+    try:
+        out = subprocess.run([BIN, "--check-tap"], capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.TimeoutExpired):
+        return False, "cannot run the helper"
+    return out.returncode == 0, out.stdout.strip() or out.stderr.strip()
+
+
+class ProcessTap(unittest.TestCase):
+    """Capturing one application's audio with a Core Audio process tap, no
+    virtual device involved. The application under test is the helper's own
+    tone player, so the tests know exactly what it plays."""
+
+    def setUp(self):
+        ok, why = tap_ready()
+        if not ok:
+            self.skipTest(why)
+
+    def tone(self, hz):
+        proc = subprocess.Popen([BIN, "--tone-to", "BlackHole 2ch", "--tone-hz", str(hz)], stderr=subprocess.DEVNULL)
+        self.addCleanup(self._stop, proc)
+        time.sleep(1.5)
+        return proc
+
+    @staticmethod
+    def _stop(proc):
+        proc.send_signal(signal.SIGTERM)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+    def test_list_apps_names_the_processes_playing_audio(self):
+        tone = self.tone(1000)
+        out = subprocess.run([BIN, "--list-apps"], capture_output=True, text=True, timeout=20)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        apps = json.loads(out.stdout)
+        self.assertIsInstance(apps, list)
+        mine = [a for a in apps if a["pid"] == tone.pid]
+        self.assertEqual(len(mine), 1, f"tone player pid {tone.pid} missing from {apps}")
+        self.assertTrue(mine[0]["playing"], mine[0])
+        self.assertIn("name", mine[0])
+        self.assertIn("bundle", mine[0])
+
+    def test_tap_captures_one_process(self):
+        tone = self.tone(1000)
+        run = Run(["--tap", f"pid:{tone.pid}", "--status"], 14).go()
+        skip_if_host_stalled(self, run)
+        self.assertTrue(any("tapping" in l for l in run.log), run.log)
+        left = run.left()
+        tones = tone_regions(left)
+        self.assertEqual(len(tones), 1, f"expected one continuous tone, got {tones}; log: {run.log}")
+        a, b = tones[0]
+        f = frequency(left, max(a, 6 * RATE), b)
+        self.assertLess(abs(ppm(f, 1000)), 20, f"tapped tone is {f:.4f} Hz ({ppm(f, 1000):+.1f} ppm)")
+        self.assertEqual(discontinuities(left, f, a, b), [])
+        fin = run.final_status()
+        self.assertEqual(fin["underrun_frames"], 0)
+        self.assertEqual(fin["lost_frames"], 0)
+        self.assertLess(pacing(run)[0], 0.040)
+
+    def test_tap_follows_the_tap_file_at_runtime(self):
+        # The DJ picks another app: the helper re-taps within a couple of
+        # seconds, and the output carries the new app's audio.
+        first, second = self.tone(1000), self.tone(1500)
+        tmp = tempfile.mkdtemp(prefix="bbtap-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tap_file = os.path.join(tmp, "app")
+        with open(tap_file, "w") as fh:
+            fh.write(f"pid:{first.pid}\n")
+        switcher = threading.Timer(7.0, lambda: open(tap_file, "w").write(f"pid:{second.pid}\n"))
+        switcher.start()
+        run = Run(["--tap-file", tap_file, "--status"], 16).go()
+        skip_if_host_stalled(self, run)
+        left = run.left()
+        tones = tone_regions(left)
+        self.assertGreaterEqual(len(tones), 1, run.log)
+        f_early = frequency(left, 3 * RATE, 6 * RATE)
+        f_late = frequency(left, 12 * RATE, len(left) - RATE // 2)
+        self.assertLess(abs(ppm(f_early, 1000)), 20, f"before the switch: {f_early:.3f} Hz")
+        self.assertLess(abs(ppm(f_late, 1500)), 20, f"after the switch: {f_late:.3f} Hz")
+        self.assertLess(pacing(run)[0], 0.040)
+
+    def test_tap_waits_for_an_app_that_is_not_running_yet(self):
+        # Nothing matches at first: silence, no error, no exit. When the app
+        # appears the tap attaches by itself.
+        tmp = tempfile.mkdtemp(prefix="bbtap-")
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tap_file = os.path.join(tmp, "app")
+        with open(tap_file, "w") as fh:
+            fh.write("pid:0\n")   # matches nothing
+        holder = {}
+
+        def start_tone():
+            holder["tone"] = subprocess.Popen([BIN, "--tone-to", "BlackHole 2ch", "--tone-hz", "1000"], stderr=subprocess.DEVNULL)
+            time.sleep(1.0)
+            with open(tap_file, "w") as fh:
+                fh.write(f"pid:{holder['tone'].pid}\n")
+        threading.Timer(4.0, start_tone).start()
+        try:
+            # No real device behind the tap file's empty state, so the only
+            # way audio can appear is through the tap.
+            run = Run(["--tap-file", tap_file, "--device", "no such device", "--status"], 14).go()
+        finally:
+            if "tone" in holder:
+                self._stop(holder["tone"])
+        skip_if_host_stalled(self, run)
+        self.assertEqual(run.returncode, 0)
+        left = run.left()
+        tones = tone_regions(left)
+        self.assertEqual(len(tones), 1, f"expected the tone to appear once the app started, got {tones}; log: {run.log}")
+        self.assertGreater(tones[0][0], 3 * RATE, "tone should start only after the app appeared")
+        f = frequency(left, tones[0][0] + 2 * RATE, tones[0][1])
+        self.assertLess(abs(ppm(f, 1000)), 20)
 
 
 if __name__ == "__main__":

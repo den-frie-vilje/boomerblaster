@@ -162,6 +162,16 @@ The source is called **System** and sits last in line: an AirPlay or Spotify
 sender takes over while it plays. `boomerblaster set sysaudio_device "Name"`
 picks another input device.
 
+**One app instead of a device.** On macOS 14.2 or later the capture can
+take one application's sound directly, with a Core Audio process tap, and
+nothing else on the Mac: no BlackHole, no output-device fiddling, the app
+keeps playing to your headphones, and notifications stay private.
+`boomerblaster capture-app "djay Pro"` (part of the name, or a bundle id)
+switches within a second, `capture-app device` goes back to the virtual
+device, and `boomerblaster url --admin` prints the address of a picker
+page that does the same from a phone. The first time, macOS asks for
+**System Audio Recording**; allow it.
+
 ## What to expect
 
 - **Sync.** Listeners play each chunk of audio at a time agreed with the
@@ -203,6 +213,7 @@ BoomerBlaster writes and reads these files, and nothing else:
 | `spotify_bitrate` | `320` | 96, 160 or 320 |
 | `sysaudio` | `false` | broadcast what this Mac plays into a virtual audio device |
 | `sysaudio_device` | `"BlackHole 2ch"` | the input device to capture when `sysaudio` is on |
+| `sysaudio_app` | `""` | capture this application instead (macOS 14.2+); `capture-app` sets it |
 
 Change any of them from the command line, for example
 `boomerblaster set codec opus` or `boomerblaster set spotify false`, then
@@ -224,6 +235,7 @@ config          print settings and file locations
 logs [-f]       show the server log
 disarm          same as stop; run before brew uninstall
 cast [on|off]   on: cast AirPlay from this Mac (receiver drops to classic AirPlay); off: AirPlay 2 again
+capture-app [NAME|device]  which application's sound the System source carries; no restart
 version         print the version
 ```
 
@@ -276,9 +288,13 @@ open-source programs that do the work:
   shift. `capture/test_capture.py` proves this end to end against a
   simulated device whose clock runs hundreds of ppm off, against a real
   snapserver, and, where BlackHole is present, against the real device.
+  With `capture-app`, the same program reads a Core Audio process tap of
+  the chosen application instead of the device, through a plain HAL IO
+  proc, and re-taps by itself when the app starts, quits or is changed.
   `plug-ins/meta_nowplaying.py` reads macOS's Now Playing (via
   [nowplaying-cli](https://github.com/kirtan-shah/nowplaying-cli)) and
-  attaches title, artist, album and artwork to the stream.
+  attaches title, artist, album and artwork to the stream; it also serves
+  the app picker page, one port above the listener page.
 
 `boomerblaster init` writes a `snapserver.conf` with one stream per receiver and
 a `meta` stream that wraps them, set as the default source, so a new listener

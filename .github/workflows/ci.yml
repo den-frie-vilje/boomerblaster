@@ -71,4 +71,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: brew install snapcast
       - run: make -C capture
-      - run: BB_QUICK=1 python3 capture/test_capture.py
+      # Shared runners stall processes for tens of ms at a time, which drains
+      # a 60 ms capture buffer; such runs skip their timing assertions.
+      - run: BB_QUICK=1 BB_STALL_LIMIT_MS=40 python3 capture/test_capture.py
+      - run: python3 plug-ins/test_picker.py
