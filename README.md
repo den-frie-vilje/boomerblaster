@@ -99,7 +99,7 @@ same dependencies and copies the command into `~/.local/bin`.
 
 ## Let colleagues in
 
-![The listener page on a desktop display, a laptop and a phone, lined up on black: on each, the cover art large with its colours blurred into the background, "Low Tide (Office Edit)" by The Elevation Desks beneath, one volume slider between two speaker glyphs, and a line reading "In sync · 2 listening"](docs/img/listener.jpg)
+![The listener page on a desktop display, a laptop, a phone and a beige CRT monitor, lined up on black: on each, the cover art large with its colours blurred into the background, "Low Tide (Office Edit)" by The Elevation Desks beneath, one volume slider between two speaker glyphs, and a line reading "In sync · 2 listening"](docs/img/listener.jpg)
 
 Colleagues open the address in any browser, tap the artwork and put on their
 headphones. The page shows the cover art large, the track and artist
