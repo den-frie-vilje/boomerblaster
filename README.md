@@ -222,6 +222,7 @@ set KEY VALUE   change a setting
 config          print settings and file locations
 logs [-f]       show the server log
 disarm          same as stop; run before brew uninstall
+cast [on|off]   on: cast AirPlay from this Mac (pauses the AirPlay 2 receiver); off: receive again
 version         print the version
 ```
 
@@ -298,7 +299,11 @@ and only because the virtual device may run at another rate.
   is the one thing BoomerBlaster does not supervise: start it once with
   `brew services start nqptp` and forget it. `doctor` and `start` tell you
   if it is missing. The build is pinned to shairport-sync's development
-  branch until AirPlay-2-on-macOS ships in a release.
+  branch until AirPlay-2-on-macOS ships in a release. The same two ports
+  are what macOS's own AirPlay sender uses, so while the receiver runs,
+  this Mac cannot cast to other AirPlay 2 speakers. `boomerblaster cast on`
+  pauses nqptp and the receiver so you can; `cast off` brings them back.
+  Phones, and the System source, are the ways to play while receiving.
 - **Browsers vary.** Chrome, Edge and Firefox report their output latency
   precisely; Safari less so, and may sit a few tens of milliseconds off.
 

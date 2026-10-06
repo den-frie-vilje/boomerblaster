@@ -48,6 +48,10 @@ Commands:
   config   print the settings and where they live.
   logs     print the server log; -f follows it.
   disarm   remove the LaunchAgent (what `stop` does, for uninstall).
+  cast     on: cast AirPlay from this Mac to other speakers. That needs
+           the PTP ports the receiver's timing daemon (nqptp) holds, so
+           the AirPlay 2 receiver pauses meanwhile. off: back to
+           receiving. No argument: which way it is set.
   version  print the version.
 
 Files: ~/.config/boomerblaster/config.json           your settings
@@ -314,8 +318,71 @@ def nqptp_problem(cfg):
         "shairport-sync is built for AirPlay 2, which needs the nqptp timing daemon,\n"
         "and nqptp is not running. Start it once; it stays on, also after login:\n"
         "  brew services start nqptp\n"
-        "(not installed? brew install den-frie-vilje/tap/nqptp first)"
+        "(not installed? brew install den-frie-vilje/tap/nqptp first;\n"
+        " paused it to cast from this Mac? boomerblaster cast off)"
     )
+
+
+def ptp_ports_held_by(pid_filter=None):
+    """Who holds UDP 319/320 (the PTP ports), as a set of process names."""
+    res = subprocess.run(["/usr/sbin/lsof", "-nP", "-iUDP:319", "-iUDP:320", "-Fc"],
+                         capture_output=True, text=True)
+    names = {line[1:] for line in res.stdout.splitlines() if line.startswith("c")}
+    return names
+
+
+def cmd_cast(args):
+    """Flip the Mac between receiving AirPlay 2 and casting it.
+
+    Both sides of AirPlay 2 want UDP 319 and 320 for their PTP clock:
+    nqptp, which the receiver follows, and macOS's own sender. One Mac
+    cannot hold them twice, so casting from this Mac means pausing nqptp,
+    and the receiver with it, until `cast off`.
+    """
+    if not DARWIN:
+        fail("cast is macOS-only")
+    if args and args[0] not in ("on", "off"):
+        fail("usage: boomerblaster cast [on|off]")
+    running = nqptp_running()
+    if not args:
+        if running:
+            say("cast off: this Mac receives AirPlay 2 (nqptp is running); it cannot cast to other speakers")
+        else:
+            holders = ptp_ports_held_by() - {"nqptp"}
+            say("cast on: this Mac can cast AirPlay to other speakers; the AirPlay 2 receiver is paused"
+                + (f" (PTP ports held by {', '.join(sorted(holders))})" if holders else ""))
+        return
+    brew = which("brew")
+    if not brew:
+        fail("Homebrew is needed to start and stop nqptp")
+    if args[0] == "on":
+        if not running:
+            say("already set to cast; the AirPlay 2 receiver is paused")
+            return
+        res = subprocess.run([brew, "services", "stop", "nqptp"], capture_output=True, text=True)
+        if res.returncode != 0:
+            fail("brew services stop nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
+        say("nqptp stopped: this Mac can now cast AirPlay to other speakers.")
+        say(f"Phones cannot AirPlay to \"{load_config()['name']}\" meanwhile; Spotify Connect"
+            + (" and the System source" if load_config()["sysaudio"] else "") + " still work.")
+        say("Back to receiving: boomerblaster cast off")
+    else:
+        if running:
+            say("already receiving (nqptp is running)")
+            return
+        holders = ptp_ports_held_by()
+        if holders:
+            fail(f"the PTP ports are in use by {', '.join(sorted(holders))}; stop casting from this Mac first, then run cast off again")
+        res = subprocess.run([brew, "services", "start", "nqptp"], capture_output=True, text=True)
+        if res.returncode != 0:
+            fail("brew services start nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
+        for _ in range(20):
+            if nqptp_running():
+                break
+            time.sleep(0.25)
+        else:
+            fail("nqptp did not come up; see brew services info nqptp")
+        say(f"nqptp running: phones can AirPlay to \"{load_config()['name']}\" again. This Mac cannot cast to other speakers until boomerblaster cast on.")
 
 
 # -------------------------------------------------------- snapserver.conf
@@ -1079,6 +1146,7 @@ COMMANDS = {
     "config": cmd_config,
     "logs": cmd_logs,
     "disarm": cmd_disarm,
+    "cast": cmd_cast,
     "version": cmd_version,
     "help": cmd_help,
     "--help": cmd_help,
