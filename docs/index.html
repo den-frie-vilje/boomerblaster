@@ -117,12 +117,15 @@
      never leaves the frame; on viewports wider than the image, growth spills
      off the top, which is allowed once zoomed. On a narrow (phone) viewport
      the contained image is a thin band and a fill would mean a fourfold zoom,
-     so there it starts already spilling off the sides, up to a point, and the
-     zoom stops short of a fill, leaving black above. --fit0 is that starting
-     bleed, --fitz the scroll zoom on top of it; both measured per viewport in
-     JS. */
+     so there (.stage.tall) it starts large, spilling off the sides up to a
+     point, anchored to the TOP so it follows the copy instead of sitting at
+     the bottom of a screen-tall black box, and the zoom is capped. --fit0 is
+     that starting bleed, --fitz the scroll zoom on top of it; both measured
+     per viewport in JS. */
   .product-wrap { position: absolute; inset: 0; transform-origin: 50% 100%; transform: scale(calc(1 + var(--fit0) + var(--pe) * (var(--fitz) + .08))); }
   .product { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; object-position: 50% 100%; transform-origin: 50% 100%; }
+  .stage.tall .product-wrap { transform-origin: 50% 0; }
+  .stage.tall .product { object-position: 50% 0; transform-origin: 50% 0; }
   .js .product { opacity: 0; transform: scale(.82); animation: emerge 2.2s cubic-bezier(.16, .8, .24, 1) .5s forwards; }
   @keyframes emerge { 0% { opacity: 0; transform: scale(.82); filter: brightness(0); } 45% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
   .shade { position: absolute; inset: 0; background: #000; opacity: calc(var(--p) * .42); pointer-events: none; }
@@ -691,11 +694,12 @@ boomerblaster url</pre>
     var boomed = [false, false], lastP = -1;
     var ticking = false;
     // The scale that takes the contained image to an edge-to-edge fill is
-    // cover/contain: about 1.1 on a laptop, nearly 4 on a phone held upright.
-    // Where it is large, start with the image spilling off the sides (at most
-    // 1.6x the frame width) and zoom at most 1.5x further, so the picture is
-    // never blown up to a sliver of itself; where it is small, start
-    // contained and zoom to the fill as before.
+    // cover/contain: about 1.1 on a laptop, 3 to 4 on a phone held upright.
+    // On a laptop, start contained and zoom to the fill as before. On a tall
+    // frame, start with the image 70% of the frame's height, spilling off the
+    // sides (at most 2.4x the frame width: the headphones sit in the middle
+    // 35% of the picture), and zoom at most 1.5x further, so the picture is
+    // never blown up to a sliver of itself.
     function setFit() {
       var pin = stage.querySelector(".pin");
       var img = stage.querySelector(".product");
@@ -706,8 +710,9 @@ boomerblaster url</pre>
       var contain = Math.min(bw / iw, bh / ih);
       var cover = Math.max(bw / iw, bh / ih);
       var fill = contain > 0 ? cover / contain : 1;
-      var base = Math.min(1.6, Math.max(1, fill - 1.2));
+      var base = Math.min(2.4, Math.max(1, fill * 0.7));
       var end = Math.min(fill, base * 1.5);
+      stage.classList.toggle("tall", base > 1);
       stage.style.setProperty("--fit0", (base - 1).toFixed(4));
       stage.style.setProperty("--fitz", (end - base).toFixed(4));
     }
