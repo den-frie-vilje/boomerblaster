@@ -63,46 +63,52 @@ def log(msg):
 
 # ------------------------------------------------------------ now playing
 
-def np_get(fields):
-    """Fetch the light fields in one call; returns a dict (missing -> None)."""
+def np_raw():
+    """Read all Now Playing fields from MediaRemote in one call.
+
+    `nowplaying-cli get elapsedTime` is unreliable (returns 0 while the real
+    value sits in the raw record), so parse the raw JSON. Artwork is left as
+    base64 here and only decoded when the track changes.
+    """
     try:
         out = subprocess.run(
-            [NOWPLAYING, "get"] + fields,
-            capture_output=True, text=True, timeout=4,
-        ).stdout.splitlines()
+            [NOWPLAYING, "get-raw"],
+            capture_output=True, text=True, timeout=6,
+        ).stdout
+        data = json.loads(out) if out.strip() else {}
     except Exception:
         return {}
-    values = {}
-    for i, field in enumerate(fields):
-        v = out[i].strip() if i < len(out) else ""
-        values[field] = None if v in ("", "null") else v
-    return values
+    k = "kMRMediaRemoteNowPlayingInfo"
+    return {
+        "title": data.get(k + "Title"),
+        "artist": data.get(k + "Artist"),
+        "album": data.get(k + "Album"),
+        "duration": data.get(k + "Duration"),
+        "elapsed": data.get(k + "ElapsedTime"),
+        "rate": data.get(k + "PlaybackRate"),
+        "artData": data.get(k + "ArtworkData"),
+    }
 
 
-def np_artwork_jpeg(www_dir, key):
-    """Pull the current artwork, transcode to JPEG under the web root, and
-    return a same-origin path (or None). Cached by track key so we transcode
-    once per track, not once per poll."""
+def np_artwork_jpeg(www_dir, key, b64):
+    """Transcode the given artwork (base64 TIFF/PNG/JPEG) to a web JPEG under
+    the web root and return a same-origin path. Cached by track key, so each
+    track is transcoded once, not once per poll."""
     art_dir = os.path.join(www_dir, ART_SUBDIR)
-    os.makedirs(art_dir, exist_ok=True)
     digest = hashlib.sha1(key.encode("utf-8", "replace")).hexdigest()[:16]
     jpeg = os.path.join(art_dir, digest + ".jpg")
     rel = "/" + ART_SUBDIR + "/" + digest + ".jpg"
     if os.path.exists(jpeg):
         return rel
+    if not b64:
+        return None
+    os.makedirs(art_dir, exist_ok=True)
     try:
-        b64 = subprocess.run(
-            [NOWPLAYING, "get", "artworkData"],
-            capture_output=True, text=True, timeout=6,
-        ).stdout.strip()
-        if not b64 or b64 == "null":
-            return None
         import base64
         raw = base64.b64decode(b64)
         src = os.path.join(art_dir, digest + ".src")
         with open(src, "wb") as fh:
             fh.write(raw)
-        # sips reads TIFF/PNG/JPEG and writes a web-friendly JPEG.
         r = subprocess.run(
             [SIPS, "-s", "format", "jpeg", src, "--out", jpeg],
             capture_output=True, timeout=8,
@@ -110,7 +116,6 @@ def np_artwork_jpeg(www_dir, key):
         os.remove(src)
         if r.returncode != 0 or not os.path.exists(jpeg):
             return None
-        # Keep the directory from growing without bound.
         _prune_art(art_dir, keep=jpeg)
         return rel
     except Exception:
@@ -137,31 +142,53 @@ def to_float(v):
 def read_nowplaying(www_dir):
     """Return a Snapcast properties dict for the current Now Playing, or a
     'stopped' dict when nothing is playing."""
-    f = np_get(["title", "artist", "album", "duration",
-                "elapsedTime", "playbackRate"])
+    f = np_raw()
     title = f.get("title")
     artist = f.get("artist")
     if not title and not artist:
         return {"playbackStatus": "stopped", "canControl": False}
 
-    rate = to_float(f.get("playbackRate"))
+    rate = to_float(f.get("rate"))
     status = "playing" if (rate is None or rate > 0) else "paused"
 
+    key = (title or "") + "\x00" + (str(artist) if artist else "")
     meta = {}
     if title:
         meta["title"] = title
     if artist:
-        meta["artist"] = [artist]
+        meta["artist"] = artist if isinstance(artist, list) else [artist]
     if f.get("album"):
         meta["album"] = f["album"]
     dur = to_float(f.get("duration"))
     if dur and dur > 0:
         meta["duration"] = dur
-    art = np_artwork_jpeg(www_dir, (title or "") + "" + (artist or ""))
+    art = np_artwork_jpeg(www_dir, key, f.get("artData"))
     if art:
         meta["artUrl"] = art
 
-    props = {
+    # Advance the playhead from the last anchor, re-anchoring to the source's
+    # reported elapsed on a track change or a seek (a jump away from where we
+    # extrapolated). Hold still while paused.
+    global _track_key, _anchor_elapsed, _anchor_wall, _last_playing, _last_reported
+    now = time.time()
+    reported = to_float(f.get("elapsed"))
+    # A source that reports a live, advancing position (Apple Music) changes it
+    # each poll; one that reports a stale snapshot (djay Pro) keeps the same
+    # value. Only a *changed* report that jumps is a real seek -- otherwise keep
+    # advancing from our anchor so a stale snapshot doesn't drag the playhead back.
+    reported_changed = reported is not None and reported != _last_reported
+    cur = _anchor_elapsed + ((now - _anchor_wall) if (_anchor_wall and _last_playing) else 0.0)
+    if key != _track_key or not _anchor_wall:
+        cur = reported if reported is not None else 0.0
+    elif reported_changed and abs(reported - cur) > 3.0:
+        cur = reported
+    _track_key = key
+    _anchor_elapsed = max(0.0, cur)
+    _anchor_wall = now
+    _last_playing = (status == "playing")
+    _last_reported = reported
+
+    return {
         "playbackStatus": status,
         "canControl": False,
         "canGoNext": False,
@@ -169,12 +196,9 @@ def read_nowplaying(www_dir):
         "canPlay": False,
         "canPause": False,
         "canSeek": False,
+        "position": _anchor_elapsed,
         "metadata": meta,
     }
-    pos = to_float(f.get("elapsedTime"))
-    if pos is not None:
-        props["position"] = pos
-    return props
 
 
 # ------------------------------------------------------------ plug-in I/O
@@ -182,6 +206,16 @@ def read_nowplaying(www_dir):
 _last_sig = None
 _last_props = {"playbackStatus": "stopped", "canControl": False}
 _lock = threading.Lock()
+
+# MediaRemote gives a snapshot of elapsed time with no timestamp, and some
+# players don't advance it at all, so we anchor the last known elapsed to the
+# wall-clock moment we read it and advance from there. Re-anchored on a track
+# change or a seek. This keeps every listener's playhead in agreement.
+_track_key = None
+_anchor_elapsed = 0.0
+_anchor_wall = 0.0
+_last_playing = False
+_last_reported = None
 
 
 def signature(props):
@@ -244,14 +278,14 @@ def main():
         except Exception as exc:
             log(f"poll error: {exc}")
             props = {"playbackStatus": "stopped", "canControl": False}
-        sig = signature(props)
         with _lock:
             _last_props = props
-        if sig != _last_sig:
-            _last_sig = sig
-            send({"jsonrpc": "2.0",
-                  "method": "Plugin.Stream.Player.Properties",
-                  "params": props})
+        # Send every poll, not only on track change: the position advances, and
+        # snapserver caches the latest properties for listeners who join later,
+        # so a fresh position keeps every page's playhead in agreement.
+        send({"jsonrpc": "2.0",
+              "method": "Plugin.Stream.Player.Properties",
+              "params": props})
         time.sleep(POLL_SECONDS)
 
 
