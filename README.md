@@ -7,6 +7,10 @@
 > hears it in their own headphones, in time with everyone else. The colleague
 > who wants quiet hears nothing at all.
 
+The landing page, in the register of a product launch:
+**[den-frie-vilje.github.io/boomerblaster](https://den-frie-vilje.github.io/boomerblaster/)**.
+This README is the manual.
+
 ## Check whether you need it
 
 You need BoomerBlaster if all of the following are true:
