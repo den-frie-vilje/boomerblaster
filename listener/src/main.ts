@@ -300,7 +300,31 @@ function startListening() {
   window.setTimeout(() => control.connect(wsBase), 800)
 }
 
-artButton.addEventListener('click', startListening)
+let hideStop: number | undefined
+function revealStop() {
+  app.classList.add('show-stop')
+  window.clearTimeout(hideStop)
+  hideStop = window.setTimeout(() => app.classList.remove('show-stop'), 3000)
+}
+
+// Leaves the stream for THIS listener only — closes this client's socket and
+// audio; the server stream plays on for everyone else. Returns the page to its
+// just-loaded state.
+function stopListening() {
+  window.clearTimeout(hideStop)
+  app.classList.remove('show-stop', 'playing')
+  if (stream) { stream.stop(); stream = undefined }
+  artButton.setAttribute('aria-label', 'Listen')
+  setProgress(undefined, undefined)
+}
+
+// Tap to listen; while playing, a tap reveals a stop button, and a tap on that
+// leaves the stream.
+artButton.addEventListener('click', () => {
+  if (!stream) startListening()
+  else if (app.classList.contains('show-stop')) stopListening()
+  else revealStop()
+})
 
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && stream) stream.resume()

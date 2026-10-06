@@ -139,6 +139,29 @@ pick the same name.
 Both sources feed the same page. If both play at once, AirPlay wins and
 Spotify waits.
 
+### Play from the Mac itself
+
+To DJ from an app on the server Mac (djay Pro, SoundCloud in a browser,
+anything), BoomerBlaster can broadcast whatever that app plays, with the
+track from macOS's own Now Playing. AirPlay cannot do this from the same
+Mac, so it goes through a virtual audio device instead:
+
+1. `brew install blackhole-2ch nowplaying-cli`, then `sudo killall coreaudiod`
+   once (or log out and in) so the device appears. The second program reads
+   Now Playing; without it the audio still flows, without the track.
+2. `boomerblaster set sysaudio true` and `boomerblaster restart`.
+3. In the DJ app, choose **BlackHole 2ch** as the output device. In an app
+   without its own output picker, make BlackHole the system output in
+   System Settings > Sound, or create a Multi-Output Device in Audio MIDI
+   Setup to hear it locally as well.
+4. The first time, macOS asks for **Microphone** access: capturing any audio
+   device, even a virtual one, counts as that. Allow it. Nothing listens to
+   the microphone; `doctor` shows the state of the permission.
+
+The source is called **System** and sits last in line: an AirPlay or Spotify
+sender takes over while it plays. `boomerblaster set sysaudio_device "Name"`
+picks another input device.
+
 ## What to expect
 
 - **Sync.** Listeners play each chunk of audio at a time agreed with the
@@ -175,8 +198,11 @@ BoomerBlaster writes and reads these files, and nothing else:
 | `codec` | `"flac"` | `pcm`, `flac` or `opus`; pcm is the most robust, opus the lightest |
 | `buffer_ms` | `1000` | time between stamping a chunk and playing it; raise on poor Wi-Fi |
 | `airplay` | `true` | offer an AirPlay receiver |
+| `airplay_version` | `2` | `2`: AirPlay 2 (needs nqptp); `1`: classic, no PTP clock, so this Mac can cast too. `cast on/off` flips it |
 | `spotify` | `true` | offer a Spotify Connect receiver |
 | `spotify_bitrate` | `320` | 96, 160 or 320 |
+| `sysaudio` | `false` | broadcast what this Mac plays into a virtual audio device |
+| `sysaudio_device` | `"BlackHole 2ch"` | the input device to capture when `sysaudio` is on |
 
 Change any of them from the command line, for example
 `boomerblaster set codec opus` or `boomerblaster set spotify false`, then
@@ -197,6 +223,7 @@ set KEY VALUE   change a setting
 config          print settings and file locations
 logs [-f]       show the server log
 disarm          same as stop; run before brew uninstall
+cast [on|off]   on: cast AirPlay from this Mac (receiver drops to classic AirPlay); off: AirPlay 2 again
 version         print the version
 ```
 
@@ -239,10 +266,26 @@ open-source programs that do the work:
   is served at `/admin/` for the DJ. `init` downloads a pinned release and
   verifies its checksum.
 
+- `capture/boomerblaster-capture`, a small CoreAudio program of our own, is
+  the System source when `sysaudio` is on. It reads the virtual device,
+  measures the device's clock against the system clock from the HAL's
+  timestamps, resamples to 44.1 kHz at the ratio that keeps the two locked
+  (a windowed-sinc resampler, 128 taps), and writes PCM to snapserver paced
+  to real time, so snapserver never finds a chunk late and never resyncs.
+  Audio the device skips becomes silence of the same length, not a time
+  shift. `capture/test_capture.py` proves this end to end against a
+  simulated device whose clock runs hundreds of ppm off, against a real
+  snapserver, and, where BlackHole is present, against the real device.
+  `plug-ins/meta_nowplaying.py` reads macOS's Now Playing (via
+  [nowplaying-cli](https://github.com/kirtan-shah/nowplaying-cli)) and
+  attaches title, artist, album and artwork to the stream.
+
 `boomerblaster init` writes a `snapserver.conf` with one stream per receiver and
-a `meta` stream that wraps them, so listeners sit on a single stream named
-after the venue and hear whichever source is playing. Both receivers deliver
-44.1 kHz stereo, so nothing is resampled.
+a `meta` stream that wraps them, set as the default source, so a new listener
+lands on a single stream named after the venue and hears whichever source is
+playing. Both receivers deliver
+44.1 kHz stereo, so nothing is resampled; only the System capture resamples,
+and only because the virtual device may run at another rate.
 
 ## Limits
 
@@ -257,7 +300,13 @@ after the venue and hear whichever source is playing. Both receivers deliver
   is the one thing BoomerBlaster does not supervise: start it once with
   `brew services start nqptp` and forget it. `doctor` and `start` tell you
   if it is missing. The build is pinned to shairport-sync's development
-  branch until AirPlay-2-on-macOS ships in a release.
+  branch until AirPlay-2-on-macOS ships in a release. The same two ports
+  are what macOS's own AirPlay sender uses, so while the receiver runs as
+  AirPlay 2, this Mac cannot cast to other AirPlay 2 speakers.
+  `boomerblaster cast on` drops the receiver to classic AirPlay, which
+  needs no PTP clock, stops nqptp and restarts the server: phones still
+  cast to it, AirPlay-2-only apps no longer list it, and this Mac can cast.
+  `cast off` brings AirPlay 2 back.
 - **Browsers vary.** Chrome, Edge and Firefox report their output latency
   precisely; Safari less so, and may sit a few tens of milliseconds off.
 

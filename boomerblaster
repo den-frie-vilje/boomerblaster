@@ -48,6 +48,12 @@ Commands:
   config   print the settings and where they live.
   logs     print the server log; -f follows it.
   disarm   remove the LaunchAgent (what `stop` does, for uninstall).
+  cast     on: cast AirPlay from this Mac to other speakers. That needs
+           the PTP ports the AirPlay 2 clock (nqptp) holds, so the
+           receiver drops to classic AirPlay (phones still cast to it;
+           AirPlay-2-only apps no longer list it), nqptp stops and the
+           server restarts. off: back to AirPlay 2. No argument: which
+           way it is set.
   version  print the version.
 
 Files: ~/.config/boomerblaster/config.json           your settings
@@ -81,6 +87,15 @@ LABEL = "dk.denfrievilje.boomerblaster"
 # AirPlay's RTSP port. An AirPlay-2 shairport-sync serves both AirPlay 2
 # and classic AirPlay here; 7000 is the port AirPlay 2 senders expect.
 AIRPLAY_PORT = 7000
+CLASSIC_AIRPLAY_PORT = 5000
+
+
+def airplay_classic(cfg):
+    return cfg.get("airplay_version", 2) == 1
+
+
+def airplay_port(cfg):
+    return CLASSIC_AIRPLAY_PORT if airplay_classic(cfg) else AIRPLAY_PORT
 
 # The listener page, pinned. Bump both together; the checksum is the one
 # GitHub shows on the release's asset list.
@@ -123,8 +138,18 @@ DEFAULTS = {
     # playing it. Larger survives worse Wi-Fi; smaller feels snappier.
     "buffer_ms": 1000,
     "airplay": True,
+    # 2: AirPlay 2 (needs nqptp; AirPlay-2-only apps list it). 1: classic
+    # AirPlay, which needs no PTP clock, so this Mac can cast to other
+    # speakers at the same time. `cast on/off` flips this.
+    "airplay_version": 2,
     "spotify": True,
     "spotify_bitrate": 320,
+    # Broadcast whatever plays on this Mac, captured through a virtual
+    # audio device (BlackHole). Lets any local player reach listeners --
+    # djay Pro, a browser playing SoundCloud, anything -- with the track
+    # shown from macOS's own Now Playing. Off by default; needs setup.
+    "sysaudio": False,
+    "sysaudio_device": "BlackHole 2ch",
 }
 SETTABLE = {
     "name": str,
@@ -134,8 +159,11 @@ SETTABLE = {
     "codec": str,
     "buffer_ms": int,
     "airplay": bool,
+    "airplay_version": int,
     "spotify": bool,
     "spotify_bitrate": int,
+    "sysaudio": bool,
+    "sysaudio_device": str,
 }
 # The three the listener page can decode; snapserver also knows ogg,
 # which browsers would receive and fail to play.
@@ -187,6 +215,8 @@ def save_config(cfg):
 def validate(cfg):
     if cfg["codec"] not in CODECS:
         fail(f"codec must be one of {', '.join(CODECS)}, not {cfg['codec']!r}")
+    if cfg.get("airplay_version", 2) not in (1, 2):
+        fail("airplay_version must be 2 (AirPlay 2) or 1 (classic AirPlay)")
     if cfg["spotify_bitrate"] not in (96, 160, 320):
         fail("spotify_bitrate must be 96, 160 or 320")
     if not (cfg["airplay"] or cfg["spotify"]):
@@ -258,17 +288,18 @@ def airplay_port_problem(cfg):
     """What stands in AirPlay's way, as a message, or None."""
     if not (DARWIN and cfg["airplay"]):
         return None
-    holder = airplay_port_holder()
+    port = airplay_port(cfg)
+    holder = airplay_port_holder(port)
     if holder is None or holder.startswith("shairport"):
         return None
     if holder == "ControlCenter":
         return (
-            f"macOS's own AirPlay Receiver is on and holds port {AIRPLAY_PORT}, which shairport-sync needs.\n"
+            f"macOS's own AirPlay Receiver is on and holds port {port}, which shairport-sync needs.\n"
             "Turn it off in System Settings > General > AirDrop & Handoff > AirPlay Receiver,\n"
             "or keep it and turn this half off with: boomerblaster set airplay false"
         )
     return (
-        f"port {AIRPLAY_PORT} is held by {holder!r}, which shairport-sync needs.\n"
+        f"port {port} is held by {holder!r}, which shairport-sync needs.\n"
         "Stop that program, or turn AirPlay off with: boomerblaster set airplay false"
     )
 
@@ -297,7 +328,7 @@ def nqptp_problem(cfg):
     needs nothing. boomerblaster never sudos; on macOS none is needed,
     nqptp runs as you.
     """
-    if not cfg["airplay"]:
+    if not cfg["airplay"] or airplay_classic(cfg):
         return None
     path = which("shairport-sync")
     if not path or not airplay2_build(path) or nqptp_running():
@@ -306,8 +337,108 @@ def nqptp_problem(cfg):
         "shairport-sync is built for AirPlay 2, which needs the nqptp timing daemon,\n"
         "and nqptp is not running. Start it once; it stays on, also after login:\n"
         "  brew services start nqptp\n"
-        "(not installed? brew install den-frie-vilje/tap/nqptp first)"
+        "(not installed? brew install den-frie-vilje/tap/nqptp first;\n"
+        " paused it to cast from this Mac? boomerblaster cast off)"
     )
+
+
+def ptp_ports_held_by(pid_filter=None):
+    """Who holds UDP 319/320 (the PTP ports), as a set of process names."""
+    res = subprocess.run(["/usr/sbin/lsof", "-nP", "-iUDP:319", "-iUDP:320", "-Fc"],
+                         capture_output=True, text=True)
+    names = {line[1:] for line in res.stdout.splitlines() if line.startswith("c")}
+    return names
+
+
+def write_conf(cfg):
+    paths, missing = resolve_programs(cfg)
+    if missing:
+        fail("missing: " + ", ".join(missing) + "; install and run boomerblaster init")
+    with open(SNAPSERVER_CONF, "w") as fh:
+        fh.write(render_conf(cfg, paths))
+
+
+def cmd_cast(args):
+    """Flip the Mac between receiving AirPlay 2 and casting AirPlay itself.
+
+    Both sides of AirPlay 2 want UDP 319 and 320 for their PTP clock:
+    nqptp, which the receiver follows, and macOS's own sender. One Mac
+    cannot hold them twice. Classic AirPlay needs no PTP, so `cast on`
+    drops the receiver to classic, stops nqptp and restarts the server:
+    phones still cast to it (AirPlay-2-only apps no longer list it) and
+    this Mac can cast to other speakers. `cast off` reverses that.
+    """
+    if not DARWIN:
+        fail("cast is macOS-only")
+    if args and args[0] not in ("on", "off"):
+        fail("usage: boomerblaster cast [on|off]")
+    cfg = load_config()
+    running = nqptp_running()
+    classic = airplay_classic(cfg)
+    if not args:
+        if classic and not running:
+            say("cast on: the receiver is classic AirPlay, nqptp is stopped; this Mac can cast to other speakers")
+        elif not classic and running:
+            say("cast off: the receiver is AirPlay 2 (nqptp running); this Mac cannot cast to other speakers")
+        else:
+            say(f"half-way: receiver is {'classic AirPlay' if classic else 'AirPlay 2'}, nqptp is "
+                f"{'running' if running else 'stopped'}; run boomerblaster cast on, or cast off")
+        holders = ptp_ports_held_by() - {"nqptp"}
+        if holders:
+            say(f"PTP ports in use by {', '.join(sorted(holders))}")
+        return
+    brew = which("brew")
+    if not brew:
+        fail("Homebrew is needed to start and stop nqptp")
+    if args[0] == "on":
+        if classic and not running:
+            say("already set to cast")
+            return
+        if running:
+            res = subprocess.run([brew, "services", "stop", "nqptp"], capture_output=True, text=True)
+            if res.returncode != 0:
+                fail("brew services stop nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
+            say("nqptp stopped")
+        if not classic:
+            cfg["airplay_version"] = 1
+            save_config(cfg)
+            write_conf(cfg)
+            say("receiver set to classic AirPlay")
+            if launchd_loaded():
+                cmd_restart([])
+            else:
+                say("run boomerblaster restart (or start) to apply")
+        say("This Mac can now cast AirPlay to other speakers. Phones still cast to "
+            f"\"{cfg['name']}\" (classic AirPlay; AirPlay-2-only apps will not list it).")
+        say("Back to AirPlay 2: boomerblaster cast off")
+    else:
+        if not classic and running:
+            say("already receiving AirPlay 2")
+            return
+        if not running:
+            holders = ptp_ports_held_by()
+            if holders:
+                fail(f"the PTP ports are in use by {', '.join(sorted(holders))}; stop casting from this Mac first, then run cast off again")
+            res = subprocess.run([brew, "services", "start", "nqptp"], capture_output=True, text=True)
+            if res.returncode != 0:
+                fail("brew services start nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
+            for _ in range(20):
+                if nqptp_running():
+                    break
+                time.sleep(0.25)
+            else:
+                fail("nqptp did not come up; see brew services info nqptp")
+            say("nqptp running")
+        if classic:
+            cfg["airplay_version"] = 2
+            save_config(cfg)
+            write_conf(cfg)
+            say("receiver set to AirPlay 2")
+            if launchd_loaded():
+                cmd_restart([])
+            else:
+                say("run boomerblaster restart (or start) to apply")
+        say(f"Phones can AirPlay 2 to \"{cfg['name']}\" again. This Mac cannot cast to other speakers until boomerblaster cast on.")
 
 
 # -------------------------------------------------------- snapserver.conf
@@ -319,15 +450,20 @@ def render_conf(cfg, paths):
     at that rate and nothing is resampled. The `meta` stream wraps the
     two receivers so that listeners sit on one stream, named after the
     venue, and hear whichever source is playing; the first in its list
-    wins when both play at once.
+    wins when both play at once. It is the default source, so a new
+    listener joins it rather than the first receiver's own stream.
     """
     name = quote(cfg["name"], safe="")
     sources = []
     order = []
     if cfg["airplay"]:
+        # An AirPlay-2 shairport-sync answers classic AirPlay too; asked for
+        # classic only, it needs no PTP clock (nqptp) and leaves the PTP
+        # ports to this Mac's own AirPlay sender.
         sources.append(
             f"source = airplay://{paths['shairport-sync']}?name=AirPlay"
-            f"&devicename={name}&port={AIRPLAY_PORT}"
+            f"&devicename={name}&port={airplay_port(cfg)}"
+            + ("&params=--service-type=classic" if airplay_classic(cfg) else "")
         )
         order.append("AirPlay")
     if cfg["spotify"]:
@@ -337,6 +473,20 @@ def render_conf(cfg, paths):
             "&killall=false&wd_timeout=7800"
         )
         order.append("Spotify")
+    if cfg["sysaudio"]:
+        # Whatever plays on this Mac, via the virtual device. The capture
+        # streams continuously (silence when nothing plays), so it never goes
+        # idle; it sits LAST in the meta order, a baseline the receivers beat
+        # when they are active. Its control script supplies the track from
+        # macOS Now Playing.
+        write_capture(cfg)
+        sources.append(
+            f"source = process://{CAPTURE_PATH}?name=System"
+            "&sampleformat=44100:16:2"
+            "&controlscript=meta_nowplaying.py"
+            "&log_stderr=true"
+        )
+        order.append("System")
     sources.append(f"source = meta:///{'/'.join(order)}?name={name}")
     lines = [
         "# Generated by boomerblaster; edit ~/.config/boomerblaster/config.json",
@@ -360,11 +510,14 @@ def render_conf(cfg, paths):
         "",
         "[stream]",
         f"port = {cfg['stream_port']}",
+        # New listeners land on the venue stream, not on the first receiver.
+        f"default_source = {cfg['name']}",
         "sampleformat = 44100:16:2",
         f"codec = {cfg['codec']}",
         f"buffer = {cfg['buffer_ms']}",
         "chunk_ms = 20",
         "send_to_muted = false",
+        *([f"plugin_dir = {plugin_dir()}"] if cfg["sysaudio"] and plugin_dir() else []),
         *sources,
         "",
         "[logging]",
@@ -410,7 +563,132 @@ def listener_source():
         candidate = os.path.normpath(candidate)
         if os.path.exists(os.path.join(candidate, "index.html")):
             return candidate
+
+
+def plugin_dir():
+    """Where the Snapcast control scripts live (the now-playing metadata
+    reader): next to the Homebrew binary, in a clone, or where install.sh
+    put them."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for candidate in (
+        os.path.join(here, "..", "share", "boomerblaster", "plug-ins"),
+        os.path.join(here, "plug-ins"),
+        os.path.join(DATA_DIR, "plug-ins"),
+    ):
+        candidate = os.path.normpath(candidate)
+        if os.path.exists(os.path.join(candidate, "meta_nowplaying.py")):
+            return candidate
     return None
+
+
+# The capture command, written beside the config so the process source has a
+# stable path and the device name (which contains a space) never has to pass
+# through Snapcast's space-split parameter parsing.
+CAPTURE_PATH = os.path.join(CONFIG_DIR, "capture.sh")
+CAPTURE_HELPER = "boomerblaster-capture"
+CAPTURE_FRAMEWORKS = ["Foundation", "AVFoundation", "CoreAudio", "AudioToolbox"]
+
+
+def capture_source():
+    """The helper's source directory: in a clone, where the formula put it,
+    or where install.sh put it."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for candidate in (
+        os.path.join(here, "capture"),
+        os.path.join(here, "..", "share", "boomerblaster", "capture"),
+        os.path.join(DATA_DIR, "capture"),
+    ):
+        candidate = os.path.normpath(candidate)
+        if os.path.exists(os.path.join(candidate, CAPTURE_HELPER + ".m")):
+            return candidate
+    return None
+
+
+def capture_helper(build=False):
+    """Where the built capture helper is: next to the Homebrew binary, in a
+    clone after `make -C capture`, or built by init into the data directory.
+    With build=True a missing helper is compiled from source, or init fails
+    with the reason."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for candidate in (
+        os.path.join(here, "..", "libexec", "boomerblaster", CAPTURE_HELPER),
+        os.path.join(here, "capture", CAPTURE_HELPER),
+        os.path.join(DATA_DIR, CAPTURE_HELPER),
+    ):
+        candidate = os.path.normpath(candidate)
+        if os.access(candidate, os.X_OK):
+            return candidate
+    if not build:
+        return None
+    return build_capture_helper()
+
+
+def build_capture_helper():
+    """Compiles the helper into the data directory. Needs the Xcode command
+    line tools (clang), which Homebrew needs anyway."""
+    src = capture_source()
+    if not src:
+        fail(
+            "the capture helper is missing and its source is not here either;\n"
+            "reinstall boomerblaster, or run `make -C capture` in a clone"
+        )
+    clang = which("clang")
+    if not clang:
+        fail(
+            "building the capture helper needs the Xcode command line tools:\n"
+            "  xcode-select --install\n"
+            "then run boomerblaster init again"
+        )
+    os.makedirs(DATA_DIR, exist_ok=True)
+    target = os.path.join(DATA_DIR, CAPTURE_HELPER)
+    argv = [clang, "-O2", "-Wall", "-fobjc-arc", "-mmacosx-version-min=12.0"]
+    for fw in CAPTURE_FRAMEWORKS:
+        argv += ["-framework", fw]
+    argv += ["-sectcreate", "__TEXT", "__info_plist", os.path.join(src, "Info.plist"),
+             "-o", target, os.path.join(src, CAPTURE_HELPER + ".m")]
+    say("building the capture helper (once)...")
+    res = subprocess.run(argv, capture_output=True, text=True)
+    if res.returncode != 0:
+        fail("building the capture helper failed:\n" + res.stderr.strip())
+    say(f"capture helper built at {target}")
+    return target
+
+
+def write_capture(cfg):
+    helper = capture_helper(build=True)
+    device = cfg["sysaudio_device"]
+    # The helper reads the virtual device through CoreAudio, measures the
+    # device's clock against the system clock from the HAL's timestamps,
+    # resamples to 44.1 kHz at the ratio that keeps the two locked, and writes
+    # the PCM to stdout paced to real time, so snapserver's process source
+    # always finds the next chunk ready and never resyncs. See capture/ for
+    # the source and its end-to-end tests.
+    script = (
+        "#!/bin/sh\n"
+        "# Generated by boomerblaster. Captures the virtual audio device,\n"
+        "# clock-locked, and writes raw PCM (s16le 44100 stereo) to stdout.\n"
+        f'exec "{helper}" --device "{device}" --rate 44100\n'
+    )
+    with open(CAPTURE_PATH, "w") as fh:
+        fh.write(script)
+    os.chmod(CAPTURE_PATH, 0o755)
+    return None
+
+
+def capture_check(cfg):
+    """Asks the helper about the device and the microphone permission.
+    Returns (dict or None, exit code)."""
+    helper = capture_helper()
+    if not helper:
+        return None, None
+    res = subprocess.run(
+        [helper, "--check", "--device", cfg["sysaudio_device"]],
+        capture_output=True, text=True,
+    )
+    try:
+        return json.loads(res.stdout), res.returncode
+    except json.JSONDecodeError:
+        return None, res.returncode
 
 
 def listener_present():
@@ -583,6 +861,8 @@ def cmd_init(args):
         )
     for prog, path in paths.items():
         say(f"found {prog} at {path}")
+    if cfg["sysaudio"]:
+        say(f"found capture helper at {capture_helper(build=True)}")
 
     install_listener()
     if admin_present():
@@ -775,6 +1055,24 @@ def cmd_doctor(_args):
         check(which("caffeinate"), "caffeinate: keeps the Mac awake while serving",
               "caffeinate missing; the Mac may sleep mid-set")
 
+    if cfg["sysaudio"]:
+        say("system audio")
+        helper = capture_helper()
+        check(helper, f"capture helper: {helper}", "capture helper missing; run boomerblaster init")
+        info, code = capture_check(cfg)
+        if info:
+            check(info.get("found"),
+                  f"device \"{info.get('name')}\" at {info.get('rate', 0):.0f} Hz, {info.get('channels')} channel(s)",
+                  f"no input device named \"{cfg['sysaudio_device']}\"; install BlackHole (brew install blackhole-2ch)"
+                  " or set sysaudio_device")
+            mic = info.get("microphone")
+            if mic == "authorized":
+                check(True, "microphone permission granted to this terminal (capture counts as that)", "")
+            else:
+                say(f"  note  microphone permission is {mic} for this terminal; the capture itself runs")
+                say("        under the server and asks when it first starts. If the System source stays")
+                say("        idle, allow it in System Settings > Privacy & Security > Microphone")
+
     say("files")
     check(os.path.exists(CONFIG_PATH), f"config: {CONFIG_PATH}", "no config; run boomerblaster init")
     check(os.path.exists(SNAPSERVER_CONF), f"snapserver.conf: {SNAPSERVER_CONF}", "no snapserver.conf; run boomerblaster init")
@@ -791,13 +1089,17 @@ def cmd_doctor(_args):
         if problem:
             check(False, "", problem.replace("\n", "\n        "))
         else:
-            check(port_open(AIRPLAY_PORT),
-                  f"port {AIRPLAY_PORT} answers (AirPlay, shairport-sync)",
-                  f"port {AIRPLAY_PORT} closed; shairport-sync is not up yet (it starts with the server)")
+            mode = "classic AirPlay" if airplay_classic(cfg) else "AirPlay 2"
+            check(port_open(airplay_port(cfg)),
+                  f"port {airplay_port(cfg)} answers ({mode}, shairport-sync)",
+                  f"port {airplay_port(cfg)} closed; shairport-sync is not up yet (it starts with the server)")
         sps = paths.get("shairport-sync")
-        if sps and airplay2_build(sps):
+        if airplay_classic(cfg):
+            say("  note  the receiver is in classic AirPlay mode (cast on): AirPlay-2-only apps")
+            say("        will not list it, and this Mac can cast to other speakers. boomerblaster cast off")
+        elif sps and airplay2_build(sps):
             check(nqptp_running(), "nqptp is running (the clock AirPlay 2 casts against)",
-                  "nqptp is not running; AirPlay 2 needs it: brew services start nqptp")
+                  "nqptp is not running; AirPlay 2 needs it: brew services start nqptp (or boomerblaster cast off)")
         elif sps:
             say("  note  this shairport-sync is a classic-AirPlay build; AirPlay-2-only senders")
             say("        will not list it. brew install den-frie-vilje/tap/shairport-sync and nqptp")
@@ -853,11 +1155,7 @@ def cmd_set(args):
     cfg[key] = value
     validate(cfg)
     save_config(cfg)
-    paths, missing = resolve_programs(cfg)
-    if missing:
-        fail("saved, but missing: " + ", ".join(missing) + "; install and run boomerblaster init")
-    with open(SNAPSERVER_CONF, "w") as fh:
-        fh.write(render_conf(cfg, paths))
+    write_conf(cfg)
     say(f"{key} = {json.dumps(value)}; run boomerblaster restart to apply")
 
 
@@ -908,6 +1206,7 @@ COMMANDS = {
     "config": cmd_config,
     "logs": cmd_logs,
     "disarm": cmd_disarm,
+    "cast": cmd_cast,
     "version": cmd_version,
     "help": cmd_help,
     "--help": cmd_help,

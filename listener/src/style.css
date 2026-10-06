@@ -84,6 +84,14 @@ body {
 .playing .listen { opacity: 0; pointer-events: none; }
 .art:hover .listen::before { background: #fff; }
 
+/* Stop overlay: revealed by tapping the artwork while playing. It only stops
+   this listener's playback; the stream keeps running for everyone else. */
+.stop { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0, 0, 0, .4); opacity: 0; pointer-events: none; transition: opacity .35s var(--ease); }
+.stop::before { content: ""; width: 72px; height: 72px; border-radius: 50%; background: rgba(245, 245, 247, .96); box-shadow: 0 10px 30px rgba(0, 0, 0, .4); }
+.stop::after { content: ""; position: absolute; width: 22px; height: 22px; border-radius: 3px; background: #000; }
+.playing.show-stop .stop { opacity: 1; }
+.art:hover .stop::before { background: #fff; }
+
 .meta { text-align: center; min-height: 52px; }
 .track-link { color: inherit; text-decoration: none; display: grid; gap: 4px; }
 .track-link.linked { cursor: pointer; }
