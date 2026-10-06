@@ -32,7 +32,9 @@ README.
    release's asset list, and run `boomerblaster init` on a real Mac to confirm
    the download and the page.
 2. `python3 -m py_compile boomerblaster`; `bash -n install.sh uninstall.sh`;
-   `shellcheck install.sh uninstall.sh`.
+   `shellcheck install.sh uninstall.sh`. If the listener page changed, in
+   `listener/` run `pnpm install && pnpm build` and commit `dist/`; CI fails
+   when the committed build differs from the source.
 3. Commit with a standalone message (what was decided and why, not just
    what changed), tag `vX.Y.Z`, push branch and tag, create the GitHub
    release with upgrade notes for existing users. Confirm the Actions run

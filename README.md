@@ -52,16 +52,18 @@ same dependencies and copies the command into `~/.local/bin`.
    boomerblaster init
    ```
 
-   BoomerBlaster checks that the three programs are present, fetches the
-   listener page (Snapweb, a pinned release whose checksum it verifies), and
-   writes its configuration. It answers with something like:
+   BoomerBlaster checks that the three programs are present, installs the
+   listener page, fetches your own control page (Snapweb, a pinned release
+   whose checksum it verifies), and writes its configuration. It answers
+   with something like:
 
    ```
    found snapserver at /opt/homebrew/bin/snapserver
    found shairport-sync at /opt/homebrew/bin/shairport-sync
    found librespot at /opt/homebrew/bin/librespot
-   fetching the listener page (Snapweb 0.9.3)
-   listener page unpacked in /Users/you/Library/Application Support/boomerblaster/snapweb
+   listener page installed from /opt/homebrew/share/boomerblaster/listener
+   fetching the admin page (Snapweb 0.9.3)
+   admin page unpacked in /Users/you/Library/Application Support/boomerblaster/www/admin
    config written to /Users/you/.config/boomerblaster/config.json
    snapserver.conf written to /Users/you/.config/boomerblaster/snapserver.conf
    ```
@@ -93,9 +95,15 @@ same dependencies and copies the command into `~/.local/bin`.
 
 ## Let colleagues in
 
-Colleagues open the address in any browser, tap the play button and put on
-their headphones. The page shows the current track, artist, album and cover
-art, and a volume control for their own ears only.
+Colleagues open the address in any browser, tap the artwork and put on their
+headphones. The page shows the cover art large, the track and artist
+underneath, and one slider with a mute button that moves their own ears only.
+There is nothing else on it: play, pause and skip belong to your phone.
+The lock screen and keyboard media keys show the track but do not control it.
+
+Your own controls are at `/admin/` on the same address: Snapweb, Snapcast's
+control panel, where you can see every listener, set the stream, and rename or
+remove a client. Keep that address to yourself.
 
 Laptops are the best listeners. Phones work too while the page is in the
 foreground; iOS stops the audio when the screen locks.
@@ -133,8 +141,8 @@ BoomerBlaster writes and reads these files, and nothing else:
 
 - `~/.config/boomerblaster/config.json`, the settings below
 - `~/.config/boomerblaster/snapserver.conf`, generated from them
-- `~/Library/Application Support/boomerblaster/`, the listener page and the
-  server's own state
+- `~/Library/Application Support/boomerblaster/www/`, the listener page, with
+  the admin page under `admin/`; the server's own state sits beside it
 - `~/Library/LaunchAgents/dk.denfrievilje.boomerblaster.plist`, while running
 - `~/Library/Logs/boomerblaster.log`, the server log
 
@@ -164,7 +172,7 @@ stop            stop and remove the background job
 restart         apply changed settings
 run             run in the foreground (what start runs for you)
 status          listeners, live source, current track (--json for scripts)
-url             the address to send round (--json for scripts)
+url             the address to send round (--admin for yours; --json for scripts)
 doctor          check programs, files, ports, hostname and firewall
 set KEY VALUE   change a setting
 config          print settings and file locations
@@ -199,10 +207,14 @@ open-source programs:
   Connect.
 - [snapserver](https://github.com/snapcast/snapcast) takes both, stamps every
   20 ms of audio against one clock and streams it to listeners.
-- [Snapweb](https://github.com/snapcast/snapweb), Snapcast's browser client,
-  plays the stream in sync with Web Audio and shows the track. `init`
-  downloads a pinned release and verifies its checksum; it is not bundled
-  here because it is GPL-3 and BoomerBlaster is MIT.
+- The listener page in `listener/` plays the stream in sync and shows the
+  track. Its audio engine and control client are Snapweb's own modules,
+  copied in with their GPL-3 licence; the page itself adds the artwork, the
+  volume and nothing else. It is built with Vite into `listener/dist`, which
+  is committed and installed with the formula.
+- [Snapweb](https://github.com/snapcast/snapweb), Snapcast's control panel,
+  is served at `/admin/` for the DJ. `init` downloads a pinned release and
+  verifies its checksum.
 
 `boomerblaster init` writes a `snapserver.conf` with one stream per receiver and
 a `meta` stream that wraps them, so listeners sit on a single stream named
@@ -224,5 +236,8 @@ after the venue and hear whichever source is playing. Both receivers deliver
 
 ## Licence
 
-MIT. The programs BoomerBlaster installs and downloads carry their own licences:
-Snapcast and Snapweb GPL-3, shairport-sync and librespot MIT.
+MIT for the command, the installer and this documentation. The listener page in
+`listener/` is GPL-3.0-or-later, because it builds on Snapweb's modules; its
+licence file sits in that directory. The programs BoomerBlaster installs and
+downloads carry their own licences: Snapcast and Snapweb GPL-3, shairport-sync
+and librespot MIT.

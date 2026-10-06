@@ -15,15 +15,18 @@ actual work, all installed by Homebrew:
                    one clock, and streams it to listeners who play each
                    chunk at the agreed time (Snapcast)
 
-The listener page is Snapweb, Snapcast's own browser client. It plays the
-stream in sync with Web Audio and shows the current track. boomerblaster
-fetches a pinned release of it on `init`, verifies its checksum, and
-points snapserver at it.
+The listener page is BoomerBlaster's own: the cover art, the track, and
+the listener's own volume and mute. Nothing else; transport belongs to
+the DJ's phone. It plays the stream in sync through Snapweb's player
+module. Snapweb itself, Snapcast's control panel, is kept at /admin/ for
+the DJ. `init` fetches a pinned Snapweb release, verifies its checksum,
+and composes both into one document root for snapserver.
 
 Commands:
-  init     check the dependencies, fetch the listener page, write the
-           configuration and the snapserver.conf it generates. Safe to
-           run again; it keeps your settings and regenerates the rest.
+  init     check the dependencies, install the listener page, fetch the
+           admin page (Snapweb), write the configuration and the
+           snapserver.conf it generates. Safe to run again; it keeps
+           your settings and regenerates the rest.
            Flags: --name NAME (what phones see), --no-airplay,
            --no-spotify, --codec pcm|flac|opus, --port N.
   start    run the server in the background and keep it running, also
@@ -34,7 +37,8 @@ Commands:
            `brew services start boomerblaster` run for you.
   status   who is listening, which source is live, and what is playing.
            --json prints the raw server state for scripts.
-  url      the address colleagues open. --json for scripts.
+  url      the address colleagues open; --admin for your own controls
+           (Snapweb); --json for scripts.
   doctor   check everything a colleague's browser depends on: programs,
            listener page, configuration, ports, hostname, firewall.
   set KEY VALUE
@@ -46,7 +50,8 @@ Commands:
 
 Files: ~/.config/boomerblaster/config.json           your settings
        ~/.config/boomerblaster/snapserver.conf       generated from them
-       ~/Library/Application Support/boomerblaster/  listener page, server state
+       ~/Library/Application Support/boomerblaster/  www (listener page,
+                                                 admin page), server state
        ~/Library/Logs/boomerblaster.log              the server log
        ~/Library/LaunchAgents/dk.denfrievilje.boomerblaster.plist
 On Linux the last three move to ~/.local/share/boomerblaster, ~/.local/state
@@ -67,7 +72,7 @@ import urllib.request
 import zipfile
 from urllib.parse import quote
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 LABEL = "dk.denfrievilje.boomerblaster"
 
 # The listener page, pinned. Bump both together; the checksum is the one
@@ -92,7 +97,8 @@ else:
     DATA_DIR = os.path.join(HOME, ".local", "share", "boomerblaster")
     LOG_PATH = os.path.join(HOME, ".local", "state", "boomerblaster.log")
     PLIST_PATH = None
-SNAPWEB_DIR = os.path.join(DATA_DIR, "snapweb")
+WWW_DIR = os.path.join(DATA_DIR, "www")            # what snapserver serves
+ADMIN_DIR = os.path.join(WWW_DIR, "admin")         # Snapweb, for the DJ
 STATE_DIR = os.path.join(DATA_DIR, "state")
 
 DEFAULTS = {
@@ -261,7 +267,7 @@ def render_conf(cfg, paths):
         "[http]",
         "enabled = true",
         f"port = {cfg['http_port']}",
-        f"doc_root = {SNAPWEB_DIR}",
+        f"doc_root = {WWW_DIR}",
         "",
         "[tcp]",
         "enabled = true",
@@ -307,12 +313,52 @@ def resolve_programs(cfg):
 
 # ---------------------------------------------------------------- snapweb
 
-def snapweb_present():
-    return os.path.exists(os.path.join(SNAPWEB_DIR, "index.html"))
+def listener_source():
+    """Where the built listener page lives: next to the Homebrew binary,
+    in a clone, or where install.sh put it."""
+    here = os.path.dirname(os.path.realpath(__file__))
+    for candidate in (
+        os.path.join(here, "..", "share", "boomerblaster", "listener"),
+        os.path.join(here, "listener", "dist"),
+        os.path.join(DATA_DIR, "listener"),
+    ):
+        candidate = os.path.normpath(candidate)
+        if os.path.exists(os.path.join(candidate, "index.html")):
+            return candidate
+    return None
+
+
+def listener_present():
+    return os.path.exists(os.path.join(WWW_DIR, "index.html"))
+
+
+def admin_present():
+    return os.path.exists(os.path.join(ADMIN_DIR, "index.html"))
+
+
+def www_present():
+    return listener_present() and admin_present()
+
+
+def install_listener():
+    src = listener_source()
+    if not src:
+        fail(
+            "the listener page is missing. With Homebrew it is installed with the formula;\n"
+            "from a clone, run ./install.sh (or build it: cd listener && pnpm install && pnpm build)."
+        )
+    os.makedirs(WWW_DIR, exist_ok=True)
+    for name in os.listdir(WWW_DIR):
+        if name == "admin":
+            continue
+        path = os.path.join(WWW_DIR, name)
+        shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
+    shutil.copytree(src, WWW_DIR, dirs_exist_ok=True)
+    say(f"listener page installed from {src}")
 
 
 def fetch_snapweb():
-    say(f"fetching the listener page (Snapweb {SNAPWEB_VERSION})")
+    say(f"fetching the admin page (Snapweb {SNAPWEB_VERSION})")
     req = urllib.request.Request(SNAPWEB_URL, headers={"User-Agent": "boomerblaster/" + VERSION})
     try:
         with urllib.request.urlopen(req, timeout=60) as resp:
@@ -322,20 +368,20 @@ def fetch_snapweb():
     digest = hashlib.sha256(blob).hexdigest()
     if digest != SNAPWEB_SHA256:
         fail(
-            "the downloaded listener page does not match the checksum "
+            "the downloaded admin page does not match the checksum "
             f"boomerblaster expects\n  expected {SNAPWEB_SHA256}\n  got      {digest}\n"
             "Nothing was installed. Check the release page and this version of boomerblaster."
         )
-    if os.path.isdir(SNAPWEB_DIR):
-        shutil.rmtree(SNAPWEB_DIR)
-    os.makedirs(SNAPWEB_DIR)
+    if os.path.isdir(ADMIN_DIR):
+        shutil.rmtree(ADMIN_DIR)
+    os.makedirs(ADMIN_DIR)
     with zipfile.ZipFile(io.BytesIO(blob)) as zf:
         for member in zf.namelist():
-            target = os.path.realpath(os.path.join(SNAPWEB_DIR, member))
-            if not target.startswith(os.path.realpath(SNAPWEB_DIR) + os.sep):
-                fail(f"refusing to unpack {member!r}: it would land outside {SNAPWEB_DIR}")
-        zf.extractall(SNAPWEB_DIR)
-    say(f"listener page unpacked in {SNAPWEB_DIR}")
+            target = os.path.realpath(os.path.join(ADMIN_DIR, member))
+            if not target.startswith(os.path.realpath(ADMIN_DIR) + os.sep):
+                fail(f"refusing to unpack {member!r}: it would land outside {ADMIN_DIR}")
+        zf.extractall(ADMIN_DIR)
+    say(f"admin page unpacked in {ADMIN_DIR}")
 
 
 # --------------------------------------------------------------- launchd
@@ -436,8 +482,9 @@ def cmd_init(args):
     for prog, path in paths.items():
         say(f"found {prog} at {path}")
 
-    if snapweb_present():
-        say(f"listener page present in {SNAPWEB_DIR}")
+    install_listener()
+    if admin_present():
+        say(f"admin page present in {ADMIN_DIR}")
     else:
         fetch_snapweb()
 
@@ -449,6 +496,7 @@ def cmd_init(args):
     say(f"snapserver.conf written to {SNAPSERVER_CONF}")
     say()
     say("Next: boomerblaster start, then boomerblaster url for the address to send round.")
+    say("Your own controls (Snapweb) sit at /admin/ on the same address.")
     say(f"Phones will see an AirPlay{' and a Spotify Connect' if cfg['spotify'] else ''} "
         f"device called \"{cfg['name']}\".")
 
@@ -456,8 +504,8 @@ def cmd_init(args):
 def ensure_initialised(cfg):
     if not os.path.exists(SNAPSERVER_CONF):
         fail("not set up yet; run: boomerblaster init")
-    if not snapweb_present():
-        fail("the listener page is missing; run: boomerblaster init")
+    if not www_present():
+        fail("the listener or admin page is missing; run: boomerblaster init")
     validate(cfg)
 
 
@@ -540,7 +588,15 @@ def urls(cfg):
 def cmd_url(args):
     cfg = load_config()
     if "--json" in args:
-        print(json.dumps({"urls": urls(cfg), "hostname": local_hostname(), "ip": local_ip()}))
+        print(json.dumps({
+            "urls": urls(cfg),
+            "admin": [u + "/admin/" for u in urls(cfg)],
+            "hostname": local_hostname(),
+            "ip": local_ip(),
+        }))
+    elif "--admin" in args:
+        for u in urls(cfg):
+            say(u + "/admin/")
     else:
         print_urls(cfg)
 
@@ -561,6 +617,7 @@ def cmd_status(args):
     say(f"boomerblaster {VERSION}, snapserver up")
     for u in urls(cfg):
         say("  " + u)
+    say(f"  DJ controls at /admin/")
     say()
     say("sources")
     for sid, s in streams.items():
@@ -610,7 +667,8 @@ def cmd_doctor(_args):
     say("files")
     check(os.path.exists(CONFIG_PATH), f"config: {CONFIG_PATH}", "no config; run boomerblaster init")
     check(os.path.exists(SNAPSERVER_CONF), f"snapserver.conf: {SNAPSERVER_CONF}", "no snapserver.conf; run boomerblaster init")
-    check(snapweb_present(), f"listener page: {SNAPWEB_DIR}", "listener page missing; run boomerblaster init")
+    check(listener_present(), f"listener page: {WWW_DIR}", "listener page missing; run boomerblaster init")
+    check(admin_present(), f"admin page: {ADMIN_DIR}", "admin page missing; run boomerblaster init")
 
     say("server")
     running = port_open(cfg["http_port"])
@@ -685,7 +743,7 @@ def cmd_config(_args):
     say()
     say(f"config          {CONFIG_PATH}")
     say(f"snapserver.conf {SNAPSERVER_CONF}")
-    say(f"listener page   {SNAPWEB_DIR}")
+    say(f"www             {WWW_DIR} (listener page; admin page under admin/)")
     say(f"server state    {STATE_DIR}")
     say(f"log             {LOG_PATH}")
     if PLIST_PATH:

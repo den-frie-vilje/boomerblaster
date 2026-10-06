@@ -3,7 +3,7 @@
 # command. Configuration, the listener page and the log are left in place;
 # delete them yourself for a clean slate:
 #   ~/.config/boomerblaster
-#   ~/Library/Application Support/boomerblaster
+#   ~/Library/Application Support/boomerblaster  (listener and admin pages, server state)
 #   ~/Library/Logs/boomerblaster.log
 set -eu
 

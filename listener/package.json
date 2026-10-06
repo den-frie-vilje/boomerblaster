@@ -1,0 +1,22 @@
+{
+  "name": "boomerblaster-listener",
+  "private": true,
+  "version": "0.2.0",
+  "description": "The BoomerBlaster listener page: artwork, your own volume, nothing else.",
+  "license": "GPL-3.0-or-later",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "libflacjs": "^5.4.0",
+    "opus-decoder": "^0.7.11",
+    "standardized-audio-context": "^25.3.77"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.3.0"
+  }
+}

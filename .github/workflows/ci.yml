@@ -43,5 +43,19 @@ jobs:
           curl -sL -o snapweb.zip "$url"
           got=$(sha256sum snapweb.zip | cut -d' ' -f1)
           test "$got" = "$want" || { echo "checksum drift: $got != $want"; exit 1; }
+      - name: Listener page builds and the committed build is current
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: listener/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: listener
+      - run: pnpm build
+        working-directory: listener
+      - run: git diff --exit-code -- listener/dist
       - name: Marketing page is well formed
         run: python3 -c "import html.parser,sys; p=html.parser.HTMLParser(); p.feed(open('docs/index.html').read()); print('ok')"

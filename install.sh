@@ -34,6 +34,19 @@ mkdir -p "$BIN_DIR"
 install -m 0755 "$HERE/boomerblaster" "$BIN_DIR/boomerblaster"
 echo "installed $BIN_DIR/boomerblaster"
 
+# The listener page, built into listener/dist and committed, goes where
+# `boomerblaster init` looks for it.
+DATA_DIR="$HOME/Library/Application Support/boomerblaster"
+if [ "$(uname)" != "Darwin" ]; then DATA_DIR="$HOME/.local/share/boomerblaster"; fi
+if [ -f "$HERE/listener/dist/index.html" ]; then
+    mkdir -p "$DATA_DIR"
+    rm -rf "$DATA_DIR/listener"
+    cp -R "$HERE/listener/dist" "$DATA_DIR/listener"
+    echo "installed the listener page in $DATA_DIR/listener"
+else
+    echo "note: listener/dist is missing; build it with: cd listener && pnpm install && pnpm build"
+fi
+
 case ":$PATH:" in
     *":$BIN_DIR:"*) ;;
     *) echo "note: $BIN_DIR is not in your PATH; add to your shell profile:"
