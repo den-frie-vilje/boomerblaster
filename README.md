@@ -42,8 +42,15 @@ laptop, it should stay open and awake for the length of the set.
 brew install den-frie-vilje/tap/boomerblaster
 ```
 
-This also installs the three programs BoomerBlaster drives: `snapcast`,
-`shairport-sync` and `librespot`.
+This also installs the programs BoomerBlaster drives: `snapcast`,
+`shairport-sync` (the tap's build, with AirPlay 2), `nqptp` and `librespot`.
+
+AirPlay 2 casts against a clock, and `nqptp` is that clock. Start it once;
+it keeps running, also after login, as you — no sudo:
+
+```sh
+brew services start nqptp
+```
 
 Or from a clone of this repository, run `./install.sh`, which checks the
 same dependencies and copies the command into `~/.local/bin`.
@@ -83,13 +90,14 @@ same dependencies and copies the command into `~/.local/bin`.
 
    The server keeps running in the background, also after you log in again,
    until you run `boomerblaster stop`. If macOS asks whether `snapserver`,
-   `shairport-sync` or `librespot` may accept incoming connections, allow it;
-   that is listeners and phones reaching your Mac.
+   `shairport-sync`, `nqptp` or `librespot` may accept incoming connections,
+   allow it; that is listeners and phones reaching your Mac.
 
-   If the Mac's own AirPlay Receiver is on, it occupies the port AirPlay
-   needs, and `start` says so instead of starting. Turn it off in
+   If the Mac's own AirPlay Receiver is on, it occupies port 7000, which
+   AirPlay needs, and `start` says so instead of starting. Turn it off in
    System Settings → General → AirDrop & Handoff → AirPlay Receiver;
-   BoomerBlaster is the AirPlay receiver now.
+   BoomerBlaster is the AirPlay receiver now. If `nqptp` is not running,
+   `start` says that too, with the command that fixes it.
 
 3. Get the address to send round:
 
@@ -207,11 +215,15 @@ clean slate.
 
 ## How it works
 
-BoomerBlaster is one Python file that configures and supervises three
-open-source programs:
+BoomerBlaster is one Python file that configures and supervises the
+open-source programs that do the work:
 
 - [shairport-sync](https://github.com/mikebrady/shairport-sync) receives
-  AirPlay and hands over audio and metadata.
+  AirPlay (2 and classic) and hands over audio and metadata.
+- [nqptp](https://github.com/mikebrady/nqptp) keeps the PTP clock AirPlay 2
+  senders cast against. It runs as a Homebrew service, outside
+  BoomerBlaster's supervision, because it must own UDP ports 319 and 320
+  for as long as anything AirPlays.
 - [librespot](https://github.com/librespot-org/librespot) receives Spotify
   Connect.
 - [snapserver](https://github.com/snapcast/snapcast) takes both, stamps every
@@ -237,9 +249,13 @@ after the venue and hear whichever source is playing. Both receivers deliver
   one. Spotify Connect covers the usual reason for wanting it. If you need a
   Chromecast anyway, a physical one with audio out into a USB interface can
   be captured with a `process://` source; title and cover art are lost.
-- **AirPlay 1, not 2.** Homebrew's shairport-sync is built for classic
-  AirPlay. Phones and Macs cast to it without noticing; the difference is
-  multi-room, which BoomerBlaster does not need.
+- **AirPlay 2 needs its clock.** The tap's shairport-sync is built for
+  AirPlay 2 (it answers classic AirPlay too, on the same port, 7000), so
+  AirPlay-2-only apps see it. The timing daemon it casts against, `nqptp`,
+  is the one thing BoomerBlaster does not supervise: start it once with
+  `brew services start nqptp` and forget it. `doctor` and `start` tell you
+  if it is missing. The build is pinned to shairport-sync's development
+  branch until AirPlay-2-on-macOS ships in a release.
 - **Browsers vary.** Chrome, Edge and Firefox report their output latency
   precisely; Safari less so, and may sit a few tens of milliseconds off.
 
@@ -249,4 +265,4 @@ MIT for the command, the installer and this documentation. The listener page in
 `listener/` is GPL-3.0-or-later, because it builds on Snapweb's modules; its
 licence file sits in that directory. The programs BoomerBlaster installs and
 downloads carry their own licences: Snapcast and Snapweb GPL-3, shairport-sync
-and librespot MIT.
+and librespot MIT, nqptp GPL-2.

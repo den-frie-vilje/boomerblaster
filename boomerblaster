@@ -9,7 +9,9 @@ with cover art.
 boomerblaster is the wiring between three open-source programs that do the
 actual work, all installed by Homebrew:
 
-  shairport-sync   an AirPlay receiver; iPhones and Macs cast to it
+  shairport-sync   an AirPlay 2 receiver; iPhones and Macs cast to it
+  nqptp            the clock AirPlay 2 casts against; a Homebrew service,
+                   started once with `brew services start nqptp`
   librespot        a Spotify Connect receiver; any phone casts to it
   snapserver       takes the audio from both, stamps every chunk against
                    one clock, and streams it to listeners who play each
@@ -75,6 +77,10 @@ from urllib.parse import quote
 
 VERSION = "0.2.1"
 LABEL = "dk.denfrievilje.boomerblaster"
+
+# AirPlay's RTSP port. An AirPlay-2 shairport-sync serves both AirPlay 2
+# and classic AirPlay here; 7000 is the port AirPlay 2 senders expect.
+AIRPLAY_PORT = 7000
 
 # The listener page, pinned. Bump both together; the checksum is the one
 # GitHub shows on the release's asset list.
@@ -229,17 +235,17 @@ def port_open(port, host="127.0.0.1", timeout=0.5):
         return False
 
 
-def airplay_port_holder():
-    """The command listening on TCP 5000 (AirPlay's port), or None.
+def airplay_port_holder(port=AIRPLAY_PORT):
+    """The command listening on the given TCP port, or None.
 
-    macOS's own AirPlay Receiver (the ControlCenter process) holds 5000
-    when it is on, and Homebrew's shairport-sync ignores every way of
-    moving to another port, so the two cannot share a Mac.
+    macOS's own AirPlay Receiver (the ControlCenter process) holds 7000,
+    AirPlay 2's port, when it is on (and 5000, classic AirPlay's), so it
+    and shairport-sync cannot share a Mac.
     """
     if not DARWIN:
         return None
     res = subprocess.run(
-        ["/usr/sbin/lsof", "-nP", "-iTCP:5000", "-sTCP:LISTEN", "-Fc"],
+        ["/usr/sbin/lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-Fc"],
         capture_output=True, text=True,
     )
     for line in res.stdout.splitlines():
@@ -257,13 +263,50 @@ def airplay_port_problem(cfg):
         return None
     if holder == "ControlCenter":
         return (
-            "macOS's own AirPlay Receiver is on and holds port 5000, which shairport-sync needs.\n"
+            f"macOS's own AirPlay Receiver is on and holds port {AIRPLAY_PORT}, which shairport-sync needs.\n"
             "Turn it off in System Settings > General > AirDrop & Handoff > AirPlay Receiver,\n"
             "or keep it and turn this half off with: boomerblaster set airplay false"
         )
     return (
-        f"port 5000 is held by {holder!r}, which shairport-sync needs.\n"
+        f"port {AIRPLAY_PORT} is held by {holder!r}, which shairport-sync needs.\n"
         "Stop that program, or turn AirPlay off with: boomerblaster set airplay false"
+    )
+
+
+def airplay2_build(path):
+    """Whether this shairport-sync is built for AirPlay 2 (its -V string
+    carries an AirPlay2 tag)."""
+    try:
+        out = subprocess.run([path, "-V"], capture_output=True, text=True).stdout
+    except OSError:
+        return False
+    return "AirPlay2" in out
+
+
+def nqptp_running():
+    """Whether nqptp, the PTP timing daemon AirPlay 2 relies on, is up."""
+    res = subprocess.run(["/usr/bin/pgrep", "-x", "nqptp"], capture_output=True)
+    return res.returncode == 0
+
+
+def nqptp_problem(cfg):
+    """What stands in AirPlay 2's way, as a message, or None.
+
+    An AirPlay-2 shairport-sync will not start without nqptp, and
+    snapserver would respawn it into the same wall; a classic build
+    needs nothing. boomerblaster never sudos; on macOS none is needed,
+    nqptp runs as you.
+    """
+    if not cfg["airplay"]:
+        return None
+    path = which("shairport-sync")
+    if not path or not airplay2_build(path) or nqptp_running():
+        return None
+    return (
+        "shairport-sync is built for AirPlay 2, which needs the nqptp timing daemon,\n"
+        "and nqptp is not running. Start it once; it stays on, also after login:\n"
+        "  brew services start nqptp\n"
+        "(not installed? brew install den-frie-vilje/tap/nqptp first)"
     )
 
 
@@ -284,7 +327,7 @@ def render_conf(cfg, paths):
     if cfg["airplay"]:
         sources.append(
             f"source = airplay://{paths['shairport-sync']}?name=AirPlay"
-            f"&devicename={name}&port=5000"
+            f"&devicename={name}&port={AIRPLAY_PORT}"
         )
         order.append("AirPlay")
     if cfg["spotify"]:
@@ -574,11 +617,11 @@ def cmd_run(_args):
     snapserver = which("snapserver")
     if not snapserver:
         fail("snapserver is not installed; brew install snapcast")
-    problem = airplay_port_problem(cfg)
-    if problem:
+    for problem in (airplay_port_problem(cfg), nqptp_problem(cfg)):
         # Keep serving Spotify and the page; under launchd a hard exit
         # here would just have launchd respawn us into the same wall.
-        say("warning: " + problem)
+        if problem:
+            say("warning: " + problem)
     argv = [snapserver, "-c", SNAPSERVER_CONF]
     caffeinate = which("caffeinate") if DARWIN else None
     if caffeinate:
@@ -599,7 +642,7 @@ def cmd_start(args):
     if launchd_loaded():
         say("already running (LaunchAgent loaded); use restart to apply changes")
         return
-    problem = airplay_port_problem(cfg)
+    problem = airplay_port_problem(cfg) or nqptp_problem(cfg)
     if problem:
         fail(problem)
     write_plist()
@@ -748,8 +791,16 @@ def cmd_doctor(_args):
         if problem:
             check(False, "", problem.replace("\n", "\n        "))
         else:
-            check(port_open(5000), "port 5000 answers (AirPlay, shairport-sync)",
-                  "port 5000 closed; shairport-sync is not up yet (it starts with the server)")
+            check(port_open(AIRPLAY_PORT),
+                  f"port {AIRPLAY_PORT} answers (AirPlay, shairport-sync)",
+                  f"port {AIRPLAY_PORT} closed; shairport-sync is not up yet (it starts with the server)")
+        sps = paths.get("shairport-sync")
+        if sps and airplay2_build(sps):
+            check(nqptp_running(), "nqptp is running (the clock AirPlay 2 casts against)",
+                  "nqptp is not running; AirPlay 2 needs it: brew services start nqptp")
+        elif sps:
+            say("  note  this shairport-sync is a classic-AirPlay build; AirPlay-2-only senders")
+            say("        will not list it. brew install den-frie-vilje/tap/shairport-sync and nqptp")
 
     say("network")
     host = local_hostname()
@@ -767,7 +818,7 @@ def cmd_doctor(_args):
         ).stdout.strip()
         if "enabled" in fw.lower() and "disabled" not in fw.lower():
             say("  note  the macOS firewall is on; allow incoming connections for snapserver,")
-            say("        shairport-sync and librespot when macOS asks, or in System Settings")
+            say("        shairport-sync, nqptp and librespot when macOS asks, or in System Settings")
         else:
             say("  ok    macOS firewall is off, or not blocking")
     say("  note  office Wi-Fi with client isolation blocks device-to-device traffic;")
