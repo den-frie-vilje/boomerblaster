@@ -11,12 +11,13 @@
   <script type="module" src="/src/main.ts"></script>
 </head>
 <body>
-  <div id="backdrop" aria-hidden="true"></div>
+  <div id="backdrop" aria-hidden="true"><div class="bd" id="bd-a"></div><div class="bd" id="bd-b"></div></div>
   <main id="app">
     <section class="player" id="player">
       <div class="art-wrap">
         <button class="art" id="art" type="button" aria-label="Listen">
-          <img id="artwork" alt="" decoding="async">
+          <img class="layer" id="art-a" alt="" decoding="async">
+          <img class="layer" id="art-b" alt="" decoding="async">
           <span class="art-fallback" id="art-fallback" aria-hidden="true">
             <svg viewBox="0 0 24 24"><path d="M12 3a8 8 0 0 0-8 8v6a3 3 0 0 0 3 3h1v-8H6v-1a6 6 0 0 1 12 0v1h-2v8h1a3 3 0 0 0 3-3v-6a8 8 0 0 0-8-8z"/></svg>
           </span>

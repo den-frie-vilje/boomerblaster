@@ -1,7 +1,7 @@
 {
   "name": "boomerblaster-listener",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "The BoomerBlaster listener page: artwork, your own volume, nothing else.",
   "license": "GPL-3.0-or-later",
   "type": "module",

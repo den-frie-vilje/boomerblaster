@@ -18,7 +18,6 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 const app = $('app')
 const backdrop = $('backdrop')
 const artButton = $<HTMLButtonElement>('art')
-const artwork = $<HTMLImageElement>('artwork')
 const titleEl = $('title')
 const artistEl = $('artist')
 const muteButton = $<HTMLButtonElement>('mute')
@@ -101,28 +100,49 @@ function render(server: Snapcast.Server) {
   setStatus(stream ? `In sync · ${who}` : who)
 }
 
+// Two stacked layers for the artwork and two for the blurred backdrop:
+// the next image loads into the hidden layer and fades in over the old
+// one, so a track change never cuts. A load that fails leaves the old
+// art in place; a stream without art fades out to the glyph.
+const artLayers = [$<HTMLImageElement>('art-a'), $<HTMLImageElement>('art-b')]
+const bdLayers = [$('bd-a'), $('bd-b')]
+let front = 0
+let loading: HTMLImageElement | null = null
+
 function setArt(url: string) {
   if (url === lastArt) return
   lastArt = url
-  if (url) {
-    artwork.src = url
-    artwork.onload = () => {
-      artwork.classList.add('has')
-      app.classList.add('has-art')
-      backdrop.style.backgroundImage = `url("${url}")`
-      backdrop.classList.add('on')
-    }
-    artwork.onerror = () => clearArt()
-  } else {
-    clearArt()
+  if (!url) {
+    artLayers.forEach(l => l.classList.remove('show'))
+    bdLayers.forEach(l => l.classList.remove('show'))
+    app.classList.remove('has-art')
+    return
   }
-}
-
-function clearArt() {
-  artwork.classList.remove('has')
-  artwork.removeAttribute('src')
-  app.classList.remove('has-art')
-  backdrop.classList.remove('on')
+  const probe = new Image()
+  loading = probe
+  probe.decoding = 'async'
+  probe.onload = () => {
+    if (loading !== probe || lastArt !== url) return
+    const back = 1 - front
+    artLayers[back].src = url
+    bdLayers[back].style.backgroundImage = `url("${url}")`
+    // Next frame, so the browser paints the hidden layer before fading it.
+    requestAnimationFrame(() => {
+      artLayers[back].classList.add('show')
+      bdLayers[back].classList.add('show')
+      artLayers[front].classList.remove('show')
+      bdLayers[front].classList.remove('show')
+      front = back
+      app.classList.add('has-art')
+      window.setTimeout(() => {
+        // Free the old layer once the fade has finished.
+        const old = 1 - front
+        if (!artLayers[old].classList.contains('show')) artLayers[old].removeAttribute('src')
+      }, 900)
+    })
+  }
+  probe.onerror = () => { if (loading === probe) loading = null }
+  probe.src = url
 }
 
 function setStatus(text: string, warn = false) {

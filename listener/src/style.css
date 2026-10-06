@@ -28,14 +28,15 @@ body {
   -webkit-user-select: none;
 }
 
-#backdrop {
-  position: fixed; inset: -20%;
+#backdrop { position: fixed; inset: 0; overflow: hidden; }
+#backdrop .bd {
+  position: absolute; inset: -20%;
   background-size: cover; background-position: center;
   filter: blur(70px) saturate(1.4) brightness(.55);
-  opacity: 0; transition: opacity 1.2s var(--ease), background-image .6s;
+  opacity: 0; transition: opacity 1.4s var(--ease);
   transform: translateZ(0);
 }
-#backdrop.on { opacity: 1; }
+#backdrop .bd.show { opacity: 1; }
 #backdrop::after { content: ""; position: absolute; inset: 0; background: rgba(0, 0, 0, .25); }
 
 #app {
@@ -59,8 +60,8 @@ body {
 }
 .art:focus-visible { outline: 3px solid rgba(245, 245, 247, .8); outline-offset: 4px; }
 .playing .art { transform: scale(1); box-shadow: 0 40px 90px -20px rgba(0, 0, 0, .9); }
-.art img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .5s var(--ease); }
-.art img.has { opacity: 1; }
+.art .layer { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; opacity: 0; transition: opacity .7s var(--ease); }
+.art .layer.show { opacity: 1; }
 .art-fallback { position: absolute; inset: 0; display: grid; place-items: center; }
 .art-fallback svg { width: 28%; height: 28%; fill: rgba(245, 245, 247, .18); }
 .has-art .art-fallback { display: none; }
@@ -123,5 +124,5 @@ body {
 .idle .title { color: var(--dim); }
 
 @media (prefers-reduced-motion: reduce) {
-  .art, .art img, .listen, #backdrop { transition: none; }
+  .art, .art .layer, .listen, #backdrop .bd { transition: none; }
 }
