@@ -155,24 +155,20 @@
   @media (min-width: 735px) { .device-row { grid-template-columns: 1fr 1fr; gap: 60px; } }
   .phone { width: min(320px, 100%); margin: 0 auto; aspect-ratio: 320 / 660; border-radius: 48px; background: #0b0b0c; border: 10px solid #2c2c2e; box-shadow: 0 40px 80px -30px rgba(0,0,0,.8), inset 0 0 0 2px #0b0b0c; position: relative; overflow: hidden; }
   .phone .island { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 34%; height: 28px; background: #000; border-radius: 20px; }
-  .screen { position: absolute; inset: 0; padding: 60px 22px 26px; display: flex; flex-direction: column; gap: 14px; color: #f5f5f7; background: radial-gradient(120% 60% at 50% 0%, #1b2a33 0%, #0b0b0c 60%); }
-  .screen .top { display: flex; justify-content: space-between; font-size: 12px; color: #a1a1a6; }
-  .screen .cover { width: 100%; aspect-ratio: 1; border-radius: 16px; overflow: hidden; box-shadow: 0 20px 40px -20px rgba(0,0,0,.9); background: #223; }
+  .screen { position: absolute; inset: 0; padding: 24px 22px 22px; display: flex; flex-direction: column; justify-content: center; gap: 22px; color: #f5f5f7; background: #000; overflow: hidden; }
+  .screen .bd { position: absolute; inset: -20%; background-size: cover; background-position: center; filter: blur(40px) saturate(1.4) brightness(.55); }
+  .screen .bd::after { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.25); }
+  .screen > :not(.bd) { position: relative; }
+  .screen .cover { width: 100%; aspect-ratio: 1; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 50px -16px rgba(0,0,0,.9); background: #223; }
   .screen canvas { width: 100%; height: 100%; display: block; }
-  .screen .title { font-size: 19px; font-weight: 600; letter-spacing: -.01em; line-height: 1.2; }
-  .screen .artist { font-size: 15px; color: #a1a1a6; margin-top: 2px; }
-  .screen .bar { height: 4px; border-radius: 4px; background: #3a3a3c; position: relative; overflow: hidden; }
-  .screen .bar i { position: absolute; inset: 0 auto 0 0; width: 29%; background: #f5f5f7; border-radius: 4px; }
-  .screen .times { display: flex; justify-content: space-between; font-size: 11px; color: #a1a1a6; font-variant-numeric: tabular-nums; margin-top: -8px; }
-  .screen .controls { display: flex; justify-content: center; gap: 34px; align-items: center; margin-top: 4px; }
-  .screen .controls svg { width: 26px; height: 26px; fill: #f5f5f7; }
-  .screen .controls .play svg { width: 40px; height: 40px; }
-  .screen .vol { display: flex; align-items: center; gap: 10px; margin-top: auto; }
-  .screen .vol svg { width: 16px; height: 16px; fill: #a1a1a6; flex: none; }
-  .screen .vol .bar { flex: 1; }
-  .screen .vol .bar i { width: 62%; background: #a1a1a6; }
-  .screen .sync { align-self: center; font-size: 11px; color: #30d158; background: rgba(48, 209, 88, .12); border-radius: 980px; padding: 4px 10px; display: inline-flex; gap: 6px; align-items: center; }
-  .screen .sync::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #30d158; }
+  .screen .meta { text-align: center; }
+  .screen .title { font-size: 17px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; }
+  .screen .artist { font-size: 14px; color: rgba(245,245,247,.62); margin-top: 3px; }
+  .screen .vol { display: flex; align-items: center; gap: 12px; }
+  .screen .vol svg { width: 15px; height: 15px; fill: rgba(245,245,247,.62); flex: none; }
+  .screen .bar { flex: 1; height: 6px; border-radius: 6px; background: rgba(245,245,247,.22); position: relative; overflow: hidden; }
+  .screen .bar i { position: absolute; inset: 0 auto 0 0; width: 60%; background: #f5f5f7; border-radius: 6px; }
+  .screen .sync { position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; font-size: 10px; color: rgba(245,245,247,.34); letter-spacing: .01em; }
   .device-copy .copy { margin-top: 22px; }
   .device-copy ul { list-style: none; margin-top: 26px; display: grid; gap: 12px; }
   .device-copy li { display: flex; gap: 12px; align-items: baseline; color: var(--grey); font-size: 17px; }
@@ -378,38 +374,32 @@
   <div class="wrap">
     <div class="device-row">
       <div class="rv" style="--x:-20px; --y:0">
-        <div class="phone" aria-label="The listener page on a phone, showing cover art, track, progress, volume and a sync indicator">
+        <div class="phone" aria-label="The listener page on a phone: cover art, track and artist, one volume slider with a mute button, and a line saying it is in sync">
           <div class="island"></div>
           <div class="screen">
-            <div class="top"><span>BoomerBlaster</span><span>14 listening</span></div>
+            <div class="bd" id="bd" aria-hidden="true"></div>
             <div class="cover"><canvas id="cover" width="480" height="480" aria-hidden="true"></canvas></div>
-            <div>
+            <div class="meta">
               <div class="title">Low Tide (Office Edit)</div>
               <div class="artist">The Elevation Desks · Under the Desk, 1999</div>
             </div>
-            <div class="bar"><i></i></div>
-            <div class="times"><span>1:47</span><span>-4:25</span></div>
-            <div class="controls">
-              <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zM20 6v12L9 12z"/></svg></span>
-              <span class="play" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></span>
-              <span aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M16 6h2v12h-2zM4 6v12l11-6z"/></svg></span>
-            </div>
             <div class="vol">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a8 8 0 0 0-8 8v6a3 3 0 0 0 3 3h1v-8H6v-1a6 6 0 0 1 12 0v1h-2v8h1a3 3 0 0 0 3-3v-6a8 8 0 0 0-8-8z"/></svg>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zm11.5 3a3.5 3.5 0 0 0-2-3.15v6.3a3.5 3.5 0 0 0 2-3.15zm-2-7.7v2.06A6 6 0 0 1 17.5 12a6 6 0 0 1-4 5.64v2.06A8 8 0 0 0 19.5 12a8 8 0 0 0-6-7.7z"/></svg>
               <div class="bar"><i></i></div>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4zm11.5 3a3.5 3.5 0 0 0-2-3.15v6.3a3.5 3.5 0 0 0 2-3.15zm-2-7.7v2.06A6 6 0 0 1 17.5 12a6 6 0 0 1-4 5.64v2.06A8 8 0 0 0 19.5 12a8 8 0 0 0-6-7.7z"/></svg>
             </div>
-            <span class="sync">In sync · 11 ms</span>
+            <span class="sync">In sync · 14 listening</span>
           </div>
         </div>
       </div>
       <div class="device-copy">
         <p class="eyebrow rv">Now playing</p>
         <h2 class="headline rv" style="--d:.08s">Your taste. Their screens. Everyone's own volume.</h2>
-        <p class="copy rv" style="--d:.16s">Every listener gets the cover art large, the track and artist underneath, a volume knob that only moves their own ears, and a quiet word on how far they are from the clock. The page is Snapcast's own browser client; nothing to install, nothing to update.</p>
+        <p class="copy rv" style="--d:.16s">Every listener gets the cover art large, its colours bleeding into the background, the track and artist underneath, and one slider that only moves their own ears. That is the whole page. Play, pause and skip are not on it, because they are on the DJ's phone.</p>
         <ul class="rv" style="--d:.24s">
-          <li><b>Cover art</b> from AirPlay, as the player sent it.</li>
-          <li><b>Volume</b> per listener. The frog is safe.</li>
-          <li><b>Sync</b> read-out, so a drift is a number, not an argument.</li>
+          <li><b>Cover art</b> from AirPlay, as the player sent it, crossfading on every change.</li>
+          <li><b>Volume</b> and mute, per listener. The frog is safe.</li>
+          <li><b>One line</b> saying it is in sync, and how many ears are on.</li>
         </ul>
       </div>
     </div>
@@ -527,7 +517,7 @@ boomerblaster url</pre>
       <div class="spec"><div class="k">Ports</div><div class="v"><p>1780 listener page and control, 1704 and 1705 Snapcast, 5000 AirPlay.</p></div></div>
       <div class="spec"><div class="k">Metadata</div><div class="v"><p>Title, artist, album and cover art from AirPlay sources that send them. Title and artist from Spotify Connect.</p></div></div>
       <div class="spec"><div class="k">Privacy</div><div class="v"><p>Nothing leaves the local network. No account, no cloud, no telemetry.</p></div></div>
-      <div class="spec"><div class="k">In the box</div><div class="v"><p>One Python file, standard library only. Fetches Snapweb 0.9.3 on first run and verifies its checksum.</p></div></div>
+      <div class="spec"><div class="k">In the box</div><div class="v"><p>One Python file, standard library only, and the listener page. Fetches Snapweb 0.9.3 on first run, checksum verified, as the DJ's own control page at /admin/.</p></div></div>
       <div class="spec"><div class="k">Not in the box</div><div class="v"><p>Chromecast.<sup>6</sup> Indoor smoking. Your vinyl.</p></div></div>
       <div class="spec"><div class="k">Licence</div><div class="v"><p>MIT. Snapcast and Snapweb are GPL-3; shairport-sync and librespot are MIT.</p></div></div>
     </div>
@@ -673,6 +663,8 @@ boomerblaster url</pre>
     var vig = ctx.createRadialGradient(W / 2, H / 2, W * .35, W / 2, H / 2, W * .75);
     vig.addColorStop(0, "rgba(0,0,0,0)"); vig.addColorStop(1, "rgba(0,0,0,.55)");
     ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
+    var bd = document.getElementById("bd");
+    if (bd) bd.style.backgroundImage = "url(" + c.toDataURL("image/jpeg", .6) + ")";
   }
 })();
 </script>
