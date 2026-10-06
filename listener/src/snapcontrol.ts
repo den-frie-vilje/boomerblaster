@@ -109,6 +109,8 @@ namespace Snapcast {
             this.album = json.album;
             this.artUrl = json.artUrl;
             this.duration = json.duration;
+            this.url = json.url;
+            this.trackId = json.trackId;
         }
 
         title?: string;
@@ -116,6 +118,8 @@ namespace Snapcast {
         album?: string;
         artUrl?: string;
         duration?: number;
+        url?: string;
+        trackId?: string;
     }
 
     type PlaybackStatus = 'stopped' | 'paused' | 'playing';

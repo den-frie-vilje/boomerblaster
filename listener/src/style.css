@@ -84,10 +84,30 @@ body {
 .playing .listen { opacity: 0; pointer-events: none; }
 .art:hover .listen::before { background: #fff; }
 
-.meta { text-align: center; display: grid; gap: 4px; min-height: 52px; }
+.meta { text-align: center; min-height: 52px; }
+.track-link { color: inherit; text-decoration: none; display: grid; gap: 4px; }
+.track-link.linked { cursor: pointer; }
+.track-link.linked .artist::after { content: " ↗"; color: var(--faint); }
+.track-link.linked:hover .title { text-decoration: underline; text-underline-offset: 3px; }
 .title { font-size: 20px; font-weight: 600; letter-spacing: -.01em; line-height: 1.25; text-wrap: balance; }
 .artist { font-size: 17px; color: var(--dim); line-height: 1.3; }
 .title, .artist { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+/* The playbar shows where the track is; it takes no touches. Seeking
+   belongs to the DJ's phone, and AirPlay sends no duration at all, in
+   which case only the elapsed time shows. */
+.playbar {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px;
+  pointer-events: none; margin-top: -12px; min-height: 14px;
+}
+.pb-time { font-size: 11px; color: var(--faint); font-variant-numeric: tabular-nums; min-width: 34px; }
+.pb-time.dur { text-align: right; }
+.pb-track { height: 4px; border-radius: 4px; background: var(--track); overflow: hidden; }
+.pb-fill { height: 100%; width: 0; border-radius: 4px; background: var(--dim); }
+.playbar.no-dur { grid-template-columns: 1fr; }
+.playbar.no-dur .pb-track, .playbar.no-dur .dur { display: none; }
+.playbar.no-dur .pos { text-align: center; }
+.idle .playbar { opacity: 0; }
 
 .volume { display: flex; align-items: center; gap: 14px; }
 .mute { background: none; border: 0; padding: 6px; margin: -6px; cursor: pointer; color: var(--dim); display: grid; }

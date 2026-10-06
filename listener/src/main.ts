@@ -20,6 +20,11 @@ const backdrop = $('backdrop')
 const artButton = $<HTMLButtonElement>('art')
 const titleEl = $('title')
 const artistEl = $('artist')
+const trackLink = $<HTMLAnchorElement>('track-link')
+const playbar = $('playbar')
+const pbPos = $('pb-pos')
+const pbFill = $('pb-fill')
+const pbDur = $('pb-dur')
 const muteButton = $<HTMLButtonElement>('mute')
 const slider = $<HTMLInputElement>('slider')
 const statusEl = $('status')
@@ -81,23 +86,141 @@ function render(server: Snapcast.Server) {
     titleEl.textContent = title
     artistEl.textContent = line
     document.title = line ? `${title} – ${meta.artist?.join(', ') ?? ''}` : title
-    setArt(meta.artUrl ? new URL(meta.artUrl, httpBase + '/').toString() : '')
+    setArt(meta.artUrl ? resolveArt(meta.artUrl) : '')
     setMediaSession(title, meta.artist?.join(', ') ?? '', meta.album ?? '', lastArt)
+    setTrackLink(vendorUrl(meta, spotifyIsLive(server)))
+    setProgress(meta, s?.properties.position)
   } else if (playing) {
     titleEl.textContent = 'Now playing'
     artistEl.textContent = s?.id ?? ''
     document.title = 'BoomerBlaster'
     setArt('')
+    setTrackLink('')
+    setProgress(undefined, undefined)
   } else {
     titleEl.textContent = stream ? 'Nothing playing' : 'BoomerBlaster'
     artistEl.textContent = stream ? 'Ask the DJ.' : 'Tap the artwork to listen'
     document.title = 'BoomerBlaster'
     setArt('')
+    setTrackLink('')
+    setProgress(undefined, undefined)
   }
 
   const n = listenerCount(server)
   const who = n === 1 ? '1 listening' : `${n} listening`
-  setStatus(stream ? `In sync · ${who}` : who)
+  setStatus(stream ? `In sync · ${who}` : `Tap the artwork to listen · ${who}`)
+}
+
+// snapserver builds its cover-art links from its own idea of the host
+// name, which other devices often cannot resolve; the page and the
+// server share an origin, so point those links back at it. Art hosted
+// elsewhere (Spotify's CDN) passes through untouched.
+function resolveArt(artUrl: string): string {
+  try {
+    const url = new URL(artUrl, httpBase + '/')
+    if (url.pathname.startsWith('/__image_cache')) return httpBase + url.pathname + url.search
+    return url.toString()
+  } catch {
+    return ''
+  }
+}
+
+// ---------------------------------------------------------------- playbar
+//
+// Noninteractive on purpose: seeking belongs to the DJ's phone. The time
+// shown is the playhead of the track, never "how long this page has been
+// open": a position reported by the source is used as is; without one
+// (AirPlay sends none through snapserver) the page counts from a track
+// boundary it has witnessed, and until it has witnessed one — a page
+// opened mid-track — it shows –:–– rather than a number that lies.
+
+let trackKey = ''
+let trackStartedAt = 0
+let anchored = false
+let idleSeen = false
+let knownPos: number | undefined
+let knownPosAt = 0
+let knownDur: number | undefined
+let progressing = false
+
+function setProgress(meta: Snapcast.Metadata | undefined, position: number | undefined) {
+  progressing = !!meta
+  if (!meta) {
+    idleSeen = true
+    return
+  }
+  const key = [meta.title, meta.artist?.join(','), meta.album].join(' ')
+  const changed = key !== trackKey
+  if (changed) {
+    // The first key after connecting is a track already in flight,
+    // unless the stream was idle until now; every later change is a
+    // track boundary seen live, and the count from it is the playhead.
+    anchored = trackKey !== '' || idleSeen
+    trackKey = key
+    trackStartedAt = performance.now()
+  }
+  knownDur = meta.duration
+  if (position !== undefined) {
+    knownPos = position
+    knownPosAt = performance.now()
+  } else if (changed) {
+    knownPos = undefined
+  }
+}
+
+function fmtTime(s: number): string {
+  s = Math.max(0, Math.floor(s))
+  const m = Math.floor(s / 60)
+  return `${m}:${String(s % 60).padStart(2, '0')}`
+}
+
+window.setInterval(() => {
+  if (!progressing || document.visibilityState !== 'visible') return
+  const now = performance.now()
+  const pos = knownPos !== undefined
+    ? knownPos + (now - knownPosAt) / 1000
+    : anchored ? (now - trackStartedAt) / 1000 : undefined
+  if (pos !== undefined && knownDur) {
+    playbar.classList.remove('no-dur')
+    const clamped = Math.min(pos, knownDur)
+    pbPos.textContent = fmtTime(clamped)
+    pbDur.textContent = fmtTime(knownDur)
+    pbFill.style.width = (100 * clamped / knownDur).toFixed(2) + '%'
+  } else {
+    playbar.classList.add('no-dur')
+    pbPos.textContent = pos !== undefined ? fmtTime(pos) : '–:––'
+  }
+}, 500)
+
+// ------------------------------------------------------------ vendor link
+
+function spotifyIsLive(server: Snapcast.Server): boolean {
+  const playing = (id: string) => server.streams.some(st => st.id === id && st.status === 'playing')
+  // Mirrors the meta stream's order: AirPlay wins when both play.
+  return playing('Spotify') && !playing('AirPlay')
+}
+
+function vendorUrl(meta: Snapcast.Metadata, spotify: boolean): string {
+  if (meta.url && /^https?:\/\//.test(meta.url)) return meta.url
+  const spotifyTrack = meta.trackId?.match(/spotify(?::|\/)track(?::|\/)([A-Za-z0-9]+)/)
+  if (spotifyTrack) return 'https://open.spotify.com/track/' + spotifyTrack[1]
+  const q = [meta.title, meta.artist?.join(' ')].filter(Boolean).join(' ')
+  if (!q) return ''
+  return spotify
+    ? 'https://open.spotify.com/search/' + encodeURIComponent(q)
+    : 'https://music.apple.com/search?term=' + encodeURIComponent(q)
+}
+
+function setTrackLink(href: string) {
+  if (href) {
+    trackLink.href = href
+    trackLink.classList.add('linked')
+    trackLink.setAttribute('aria-label', 'Open this track in your music service')
+  } else {
+    trackLink.removeAttribute('href')
+    trackLink.classList.remove('linked')
+    trackLink.removeAttribute('aria-label')
+  }
 }
 
 // Two stacked layers for the artwork and two for the blurred backdrop:

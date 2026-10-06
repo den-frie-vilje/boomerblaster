@@ -8,8 +8,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>BoomerBlaster</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>📻</text></svg>">
-  <script type="module" crossorigin src="./assets/index-614oOwhz.js"></script>
-  <link rel="stylesheet" crossorigin href="./assets/index-BHW5H5kO.css">
+  <script type="module" crossorigin src="./assets/index-IQZV55jE.js"></script>
+  <link rel="stylesheet" crossorigin href="./assets/index-TFGFDGmL.css">
 </head>
 <body>
   <div id="backdrop" aria-hidden="true"><div class="bd" id="bd-a"></div><div class="bd" id="bd-b"></div></div>
@@ -26,8 +26,15 @@
         </button>
       </div>
       <div class="meta">
-        <h1 class="title" id="title">BoomerBlaster</h1>
-        <p class="artist" id="artist">Tap the artwork to listen</p>
+        <a class="track-link" id="track-link" target="_blank" rel="noopener">
+          <h1 class="title" id="title">BoomerBlaster</h1>
+          <p class="artist" id="artist">Tap the artwork to listen</p>
+        </a>
+      </div>
+      <div class="playbar no-dur" id="playbar" aria-hidden="true">
+        <span class="pb-time pos" id="pb-pos">0:00</span>
+        <div class="pb-track"><div class="pb-fill" id="pb-fill"></div></div>
+        <span class="pb-time dur" id="pb-dur"></span>
       </div>
       <div class="volume" id="volume">
         <button class="mute" id="mute" type="button" aria-label="Mute" aria-pressed="false">
