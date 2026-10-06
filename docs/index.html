@@ -32,7 +32,7 @@
     --blue-hover: #0077ed;
     --link-dark: #2997ff;
     --link-light: #0066cc;
-    --sleeve: "Rubik Dirt", "Impact", "Arial Black", sans-serif; /* 1999 flyer type, worn ink; used twice */
+    --sleeve: "Rubik Dirt", "Impact", "Arial Black", sans-serif; /* 1999 flyer type, worn ink; used once, on the stage */
     --radius: 28px;
     --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
     --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -109,8 +109,9 @@
   .hero .headline { margin-top: 10px; }
   .hero .links { display: flex; gap: 34px; justify-content: center; margin-top: 22px; flex-wrap: wrap; }
   /* the stage: the product pins for a few screen heights while the headline arrives over it */
-  .stage { height: 240vh; margin-top: 28px; --p: 1; }
+  .stage { height: 260vh; margin-top: 28px; --p: 1; --pe: 1; }
   .pin { position: sticky; top: 52px; height: calc(100vh - 52px); height: calc(100dvh - 52px); overflow: hidden; background: #000; }
+  .product-wrap { position: absolute; inset: 0; transform-origin: 50% 62%; transform: translateY(calc(var(--pe) * -3.5%)) scale(calc(1 + var(--pe) * .16)); will-change: transform; }
   .product { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; object-position: 50% 60%; transform-origin: 50% 70%; }
   .js .product { opacity: 0; transform: scale(.82); animation: emerge 2.2s cubic-bezier(.16, .8, .24, 1) .5s forwards; }
   @keyframes emerge { 0% { opacity: 0; transform: scale(.82); filter: brightness(0); } 45% { opacity: 1; } 100% { opacity: 1; transform: none; filter: brightness(1); } }
@@ -118,9 +119,16 @@
   .lines { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: .06em; padding: 0 22px; text-align: center; margin: 0; }
   .line {
     display: block; font-size: clamp(40px, 9.5vw, 136px); line-height: 1; filter: drop-shadow(0 10px 40px rgba(0,0,0,.6));
-    --t: clamp(0, (var(--p) - (.18 + var(--i) * .3)) / .22, 1);
+    --t: clamp(0, (var(--p) - (.12 + var(--i) * .38)) / .16, 1);
     opacity: var(--t); transform: translateY(calc((1 - var(--t)) * 36px)) scale(calc(.94 + var(--t) * .06));
   }
+  /* each character: the system face underneath, the boomer face over it, swapped by scroll with a per-character start (--b) */
+  .word { display: inline-block; white-space: nowrap; }
+  .ch { position: relative; display: inline-block; --m: clamp(0, (var(--p) - var(--b)) / .06, 1); }
+  .ch > span { display: inline-block; background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .ch .boo { opacity: var(--m); transform: scale(calc(.86 + var(--m) * .14)); }
+  .ch .sys { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%) scale(calc(1 + var(--m) * .1)); font-family: var(--font); font-weight: 700; letter-spacing: -.03em; text-transform: none; opacity: calc(1 - var(--m)); }
+  .no-split .line { background: linear-gradient(180deg, #fafafa 0%, #d6d6db 32%, #8e8e93 58%, #c7c7cc 78%, #f0f0f2 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
   @media (max-width: 734px) { .stage { height: 200vh; } .line { font-size: clamp(36px, 11vw, 64px); } }
 
   /* story */
@@ -132,7 +140,6 @@
   .story .copy + .copy { margin-top: 26px; }
   .story .copy em { font-style: normal; letter-spacing: .3em; margin-right: -.3em; color: #f5f5f7; }
   .story .copy strong { color: #f5f5f7; font-weight: 700; font-size: 1.3em; }
-  .story .pull { font-size: clamp(20px, 2.8vw, 34px); line-height: 1.3; margin-top: 44px; color: #f5f5f7; }
 
   /* then / now */
   .thennow { display: grid; gap: 20px; margin-top: 56px; overflow: clip; border-radius: var(--radius); }
@@ -279,6 +286,8 @@
     .stage { height: auto; }
     .pin { position: static; height: auto; aspect-ratio: 16 / 9; }
     .line { opacity: 1; transform: none; }
+    .ch .boo { opacity: 1; transform: none; } .ch .sys { opacity: 0; }
+    .product-wrap { transform: none; }
     .card img, .localnav { transition: none; }
   }
 </style>
@@ -310,11 +319,13 @@
   </div>
   <div class="stage" id="stage">
     <div class="pin">
-      <img class="product" src="img/headphones.jpg" width="1376" height="768" alt="Dark over-ear headphones resting on a stand turned from pale oak, lit against black." fetchpriority="high">
+      <div class="product-wrap">
+        <img class="product" src="img/headphones.jpg" width="1376" height="768" alt="Dark over-ear headphones resting on a stand turned from pale oak, lit against black." fetchpriority="high">
+      </div>
       <div class="shade" aria-hidden="true"></div>
-      <h2 class="lines sleeve" aria-label="Turn it up. Nobody will know.">
-        <span class="line titanium" style="--i:0">Turn it up.</span>
-        <span class="line titanium" style="--i:1">Nobody will know.</span>
+      <h2 class="lines sleeve" id="lines" aria-label="Turn it up. Nobody will know.">
+        <span class="line" style="--i:0">Turn it up.</span>
+        <span class="line" style="--i:1">Nobody will know.</span>
       </h2>
     </div>
   </div>
@@ -328,7 +339,6 @@
     <p class="copy" data-story>Everyone was noisy. Everyone listened to the same thing, because everyone had to. Noise cancelling meant someone going <em>schhh</em>. And every week somebody nudged the volume knob one notch, and nobody noticed, and the frog boiled.</p>
     <p class="copy" data-story><strong>Well. No?</strong></p>
     <p class="copy" data-story>Now you can at least listen together again. And embarrass yourself with your low-BPM downtempo<sup>2</sup> in front of the whole floor, at a volume that bothers no one.</p>
-    <p class="copy pull sleeve" data-story>Same room. Same record. Separate ears.</p>
   </div>
 </section>
 
@@ -621,15 +631,39 @@ boomerblaster url</pre>
   // Local nav gains weight once the page has moved.
   // The stage: scroll progress 0..1 while the product is pinned.
   var stage = document.getElementById("stage");
+  var linesEl = document.getElementById("lines");
+  if (linesEl) {
+    // Split each line into characters, each carrying the scroll position at which it flips face.
+    var morphStart = [0.34, 0.70], morphSpan = 0.24;
+    linesEl.querySelectorAll(".line").forEach(function (line, li) {
+      var chars = Array.from(line.textContent), n = chars.length;
+      line.textContent = "";
+      var word = null;
+      chars.forEach(function (ch, ci) {
+        if (ch === " ") { line.appendChild(document.createTextNode(" ")); word = null; return; }
+        if (!word) { word = document.createElement("span"); word.className = "word"; line.appendChild(word); }
+        var cell = document.createElement("span");
+        cell.className = "ch";
+        cell.style.setProperty("--b", (morphStart[li] + (ci / n) * morphSpan).toFixed(3));
+        var boo = document.createElement("span"); boo.className = "boo"; boo.textContent = ch;
+        var sys = document.createElement("span"); sys.className = "sys"; sys.textContent = ch; sys.setAttribute("aria-hidden", "true");
+        cell.appendChild(boo); cell.appendChild(sys);
+        word.appendChild(cell);
+      });
+    });
+  } else if (stage) { stage.classList.add("no-split"); }
   if (stage && !reduce) {
     stage.style.setProperty("--p", "0");
+    stage.style.setProperty("--pe", "0");
     var ticking = false;
     function stageProgress() {
       ticking = false;
       var rect = stage.getBoundingClientRect();
       var travel = stage.offsetHeight - window.innerHeight;
       var p = travel > 0 ? Math.min(1, Math.max(0, -rect.top / travel)) : 1;
+      var pe = p < .5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2;  // ease in and out
       stage.style.setProperty("--p", p.toFixed(4));
+      stage.style.setProperty("--pe", pe.toFixed(4));
     }
     window.addEventListener("scroll", function () { if (!ticking) { ticking = true; requestAnimationFrame(stageProgress); } }, { passive: true });
     window.addEventListener("resize", stageProgress);
