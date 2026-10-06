@@ -142,8 +142,10 @@ DEFAULTS = {
     # takes it down to a few hundred kbit/s per listener.
     "codec": "flac",
     # Milliseconds between the server stamping a chunk and listeners
-    # playing it. Larger survives worse Wi-Fi; smaller feels snappier.
-    "buffer_ms": 1000,
+    # playing it. Larger survives worse Wi-Fi and, on phones, the lock
+    # screen (a backgrounded page gets to run about once a second, so it
+    # must have the next second of audio in hand); smaller feels snappier.
+    "buffer_ms": 2000,
     "airplay": True,
     # 2: AirPlay 2 (needs nqptp; AirPlay-2-only apps list it). 1: classic
     # AirPlay, which needs no PTP clock, so this Mac can cast to other

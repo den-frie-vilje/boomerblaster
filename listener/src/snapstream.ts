@@ -4,7 +4,7 @@
 
 import Flac from 'libflacjs/dist/libflac.js'
 import { getPersistentValue } from './config.ts'
-import { AudioContext, IAudioBuffer, IAudioContext, IAudioBufferSourceNode, IGainNode, IMediaStreamAudioDestinationNode } from 'standardized-audio-context'
+import { AudioContext, AudioWorkletNode, IAudioBuffer, IAudioContext, IAudioBufferSourceNode, IAudioWorkletNode, IGainNode, IMediaStreamAudioDestinationNode } from 'standardized-audio-context'
 import { OpusDecoder as WasmOpusDecoder } from "opus-decoder";
 
 
@@ -372,6 +372,15 @@ class AudioStream {
             else
                 break;
         }
+    }
+
+    // Whether the chunks received so far cover a slot of durMs starting at
+    // the context time playTimeMs (same clock as getNextBuffer's argument).
+    hasDataFor(playTimeMs: number, durMs: number): boolean {
+        const last = this.chunks.length ? this.chunks[this.chunks.length - 1] : this.chunk;
+        if (!last) return false;
+        const availableUntil = last.timestamp.getMilliseconds() + last.duration();
+        return this._timeProvider.serverTime(playTimeMs + durMs) <= availableUntil;
     }
 
     getNextBuffer(buffer: IAudioBuffer, playTimeMs: number) {
@@ -861,6 +870,43 @@ class PcmDecoder extends Decoder {
 }
 
 
+// The renderer used on iOS: a ring buffer indexed by absolute frame, filled
+// from the main thread as far ahead as the server buffer allows, played on
+// the audio thread, which keeps running when the page is in the background.
+// Whatever has been played is zeroed, so a starved writer means silence,
+// never a repeating buffer.
+const RING_WORKLET = `
+class BBRing extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.size = 1 << 18;
+    this.L = new Float32Array(this.size);
+    this.R = new Float32Array(this.size);
+    this.port.onmessage = (e) => {
+      const { start, left, right } = e.data;
+      for (let i = 0; i < left.length; i++) {
+        const idx = (start + i) % this.size;
+        this.L[idx] = left[i];
+        this.R[idx] = right[i];
+      }
+    };
+  }
+  process(inputs, outputs) {
+    const out = outputs[0];
+    const n = out[0].length;
+    for (let i = 0; i < n; i++) {
+      const idx = (currentFrame + i) % this.size;
+      out[0][i] = this.L[idx];
+      if (out[1]) out[1][i] = this.R[idx];
+      this.L[idx] = 0;
+      this.R[idx] = 0;
+    }
+    return true;
+  }
+}
+registerProcessor('bb-ring', BBRing);
+`;
+
 class SnapStream {
     constructor(baseUrl: string) {
         this.baseUrl = baseUrl;
@@ -1007,6 +1053,7 @@ class SnapStream {
                 Promise.resolve(decodedPromise).then(decoded => {
                     if (decoded) {
                         this.stream!.addChunk(decoded);
+                        if (this.worklet) this.pump();
                     }
                 }).catch(err => {
                     console.error("Error decoding chunk:", err);
@@ -1049,6 +1096,8 @@ class SnapStream {
         //     this.ctx.close();
         // }
         if (this.audioEl) this.audioEl.pause();
+        if (this.pumpHandle) { window.clearInterval(this.pumpHandle); this.pumpHandle = 0; }
+        if (this.worklet) { this.worklet.disconnect(); this.worklet = undefined; }
         this.ctx.suspend();
         while (this.audioBuffers.length > 0) {
             const buffer = this.audioBuffers.pop();
@@ -1071,8 +1120,54 @@ class SnapStream {
 
     public play() {
         this.playTime = this.timeProvider.nowSec() + 0.1;
+        if (SnapStream.needsMediaElement() && AudioWorkletNode && this.sampleFormat!.rate === this.ctx.sampleRate && this.ctx.audioWorklet) {
+            this.startWorklet();
+            return;
+        }
         for (let i = 1; i <= this.audioBufferCount; ++i) {
             this.playNext();
+        }
+    }
+
+    private startWorklet() {
+        const url = URL.createObjectURL(new Blob([RING_WORKLET], { type: 'application/javascript' }));
+        this.ctx.audioWorklet!.addModule(url).then(() => {
+            URL.revokeObjectURL(url);
+            if (!this.stream) return;   // stopped meanwhile
+            this.worklet = new AudioWorkletNode!(this.ctx, 'bb-ring', { numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+            this.worklet.connect(this.gainNode);
+            this.playTime = this.ctx.currentTime + 0.15;
+            this.pump();
+            this.pumpHandle = window.setInterval(() => this.pump(), 100);
+        }).catch((e) => {
+            console.warn('audio worklet unavailable, falling back', e);
+            for (let i = 1; i <= this.audioBufferCount; ++i) this.playNext();
+        });
+    }
+
+    // Fill the ring with every slot whose audio has arrived, up to the lead
+    // the server buffer gives us. Runs on each received chunk and on a timer;
+    // in the background only the former is reliable, hence the lead.
+    private pump() {
+        if (!this.worklet || !this.stream || !this.sampleFormat) return;
+        const rate = this.sampleFormat.rate;
+        const slotSec = this.bufferFrameCount / rate;
+        const now = this.ctx.currentTime;
+        if (this.playTime < now + 0.03) {
+            // The page was frozen; rejoin from here (getNextBuffer drops what is past).
+            this.playTime = now + 0.1;
+        }
+        const lead = Math.min(Math.max(this.bufferMs / 1000 - 0.15, 0.3), 2.5);
+        const horizon = now + lead;
+        if (!this.scratch) this.scratch = this.ctx.createBuffer(2, this.bufferFrameCount, rate);
+        while (this.playTime < horizon) {
+            const playTimeMs = (this.playTime + this.latency) * 1000 - this.bufferMs;
+            if (!this.stream.hasDataFor(playTimeMs, slotSec * 1000)) break;
+            this.stream.getNextBuffer(this.scratch, playTimeMs);
+            const left = this.scratch.getChannelData(0).slice();
+            const right = this.scratch.getChannelData(1).slice();
+            this.worklet.port.postMessage({ start: Math.round(this.playTime * this.ctx.sampleRate), left, right }, [left.buffer, right.buffer]);
+            this.playTime += slotSec;
         }
     }
 
@@ -1112,6 +1207,9 @@ class SnapStream {
     gainNode!: IGainNode<IAudioContext>;
     msDest?: IMediaStreamAudioDestinationNode<IAudioContext>;
     audioEl?: HTMLAudioElement;
+    worklet?: IAudioWorkletNode<IAudioContext>;
+    scratch?: IAudioBuffer;
+    pumpHandle: number = 0;
     serverSettings: ServerSettingsMessage | undefined;
     decoder: Decoder | undefined;
     sampleFormat: SampleFormat | undefined;

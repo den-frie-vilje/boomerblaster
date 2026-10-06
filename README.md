@@ -180,8 +180,9 @@ Recording**; allow it.
 - **Sync.** Listeners play each chunk of audio at a time agreed with the
   server, so laptops land within a few tens of milliseconds of each other.
   Nobody hears anyone else's headphones, so that is comfortably enough.
-- **Delay.** From your thumb to their ears takes about two seconds. AirPlay
-  buffers that much by design. Nobody is beat-matching across the office.
+- **Delay.** From your thumb to their ears takes about four seconds: two
+  from AirPlay's own buffering, two from the server's, which is what lets a
+  phone in a pocket keep playing. Nobody is beat-matching across the office.
 - **Cover art.** AirPlay from Music and most players sends title, artist,
   album and the artwork. Spotify Connect sends what librespot reports,
   title and artist at least.
@@ -213,7 +214,7 @@ BoomerBlaster writes and reads these files, and nothing else:
 | `http_port` | `1780` | the listener page's port |
 | `stream_port`, `control_port` | `1704`, `1705` | Snapcast's audio and control ports |
 | `codec` | `"flac"` | `pcm`, `flac` or `opus`; pcm is the most robust, opus the lightest |
-| `buffer_ms` | `1000` | time between stamping a chunk and playing it; raise on poor Wi-Fi |
+| `buffer_ms` | `2000` | time between stamping a chunk and playing it; raise on poor Wi-Fi, lower for snappier controls |
 | `airplay` | `true` | offer an AirPlay receiver |
 | `airplay_version` | `2` | `2`: AirPlay 2 (needs nqptp); `1`: classic, no PTP clock, so this Mac can cast too. `cast on/off` flips it |
 | `spotify` | `true` | offer a Spotify Connect receiver |
