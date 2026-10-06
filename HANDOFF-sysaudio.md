@@ -78,28 +78,30 @@ correction ppm, underruns, lost/skipped frames; the tests assert on them.
 
 ## What is NOT done
 
-### 1. Verify on the real device (blocked on a prompt, then 15 minutes)
+### 1. Listen to it for real (15 minutes)
 
-Everything above is proven against the simulator and a real snapserver, not
-yet against BlackHole, because this session's shell has no microphone grant
-and its permission prompt is sitting unanswered on screen (it also blocks
-coreaudiod for everyone, see above). To finish:
+Verified at the end of the session, once the prompt was answered:
+`RealDevice.test_blackhole_round_trip` passes (a 1000 Hz tone played into
+BlackHole comes out of the capture at 1000 Hz within 20 ppm, continuous, no
+underruns, no lost frames), and the **launchd-run server** captured the same
+tone: System went idle → playing and snapserver logged **zero `onResync`**
+over the five minutes after the device opened. Not yet done: a real set.
+`boomerblaster logs -f`, play djay Pro into BlackHole for a few minutes,
+listen on a browser, confirm no `onResync (System)` lines.
 
-1. Answer the prompt (Allow) for the terminal / Claude app. Then
-   `make -C capture test` runs `RealDevice.test_blackhole_round_trip`
-   (tone into BlackHole via `--tone-to`, captured, must be 1000 Hz ± 20 ppm,
-   continuous, no underruns). Expect ~0 ppm: BlackHole runs on the system
-   clock.
-2. `boomerblaster logs -f`, play djay Pro into BlackHole for a few minutes,
-   confirm **no `onResync (System)` lines** and listen on a browser.
-   Earlier this session one `onResync (System): 13.7 ms` appeared, during a
-   coreaudiod stall caused by the pending prompt, with the old 150 ms lead
-   and no real-time writer; both were changed afterwards. If any resync
-   appears with the new build, the status lines are the first thing to read:
-   `boomerblaster-capture --device "BlackHole 2ch" --status > /dev/null`.
-3. If the stream is still not clean, `--lead-ms` cannot go above ~350 (pipe
-   size); the remaining knob is snapserver's `buffer_ms` (irrelevant to
-   resyncs) or a `tcp://` source instead of the pipe (unbounded lead).
+One thing to watch for: at 17:43:51–55 this session, while the server's
+capture was still blocked on the device (so it was writing silence), nine
+`onResync (System)` of 0.4–46 ms appeared over four seconds, then nothing
+again. The test suite was running at the time and the microphone prompt was
+probably being answered then (coreaudiod/tccd activity). It is not explained;
+with the 300 ms lead the writer must have stopped for >300 ms. If it recurs
+with audio playing, run the helper by hand with `--status` and look for a
+jump in `t` between status lines; the real-time thread policy and the pipe
+lead are the two knobs.
+
+If the stream is ever not clean, `--lead-ms` cannot go above ~350 (pipe
+size); the remaining option is a `tcp://` source instead of the pipe
+(unbounded lead).
 
 ### 2. Microphone permission under launchd (productionization)
 
