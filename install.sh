@@ -1,6 +1,6 @@
 #!/bin/sh
 # boomerblaster installer for a clone of this repository: copies the command
-# into ~/.local/bin and checks the three programs it drives. Setup itself
+# into ~/.local/bin and checks the programs it drives. Setup itself
 # (fetching the listener page, writing the configuration) happens in
 # `boomerblaster init`, which explains what it does. Homebrew users do not
 # need this file: brew install den-frie-vilje/tap/boomerblaster.
@@ -14,8 +14,11 @@ if ! command -v brew >/dev/null 2>&1; then
 fi
 
 missing=""
-command -v snapserver >/dev/null 2>&1 || missing="$missing snapcast"
-command -v shairport-sync >/dev/null 2>&1 || missing="$missing shairport-sync"
+# The tap's builds: shairport-sync with AirPlay 2, nqptp its clock, and
+# snapcast with AirPlay track progress.
+command -v snapserver >/dev/null 2>&1 || missing="$missing den-frie-vilje/tap/snapcast"
+command -v shairport-sync >/dev/null 2>&1 || missing="$missing den-frie-vilje/tap/shairport-sync"
+command -v nqptp >/dev/null 2>&1 || missing="$missing den-frie-vilje/tap/nqptp"
 command -v librespot >/dev/null 2>&1 || missing="$missing librespot"
 
 if [ -n "$missing" ]; then

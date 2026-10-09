@@ -45,11 +45,12 @@ brew install den-frie-vilje/tap/boomerblaster
 This also installs the programs BoomerBlaster drives: `snapcast`,
 `shairport-sync` (the tap's build, with AirPlay 2), `nqptp` and `librespot`.
 
-AirPlay 2 casts against a clock, and `nqptp` is that clock. BoomerBlaster
-starts it with the server and stops it with the server, as you, no sudo.
+`boomerblaster start` and `boomerblaster stop` also start and stop `nqptp`,
+the timing service AirPlay 2 needs. No administrator password is involved.
 
 Or from a clone of this repository, run `./install.sh`, which checks the
-same dependencies and copies the command into `~/.local/bin`.
+same programs, offers to install the missing ones from the tap, and copies the
+command into `~/.local/bin`.
 
 ## Set up BoomerBlaster
 
@@ -59,7 +60,7 @@ same dependencies and copies the command into `~/.local/bin`.
    boomerblaster init
    ```
 
-   BoomerBlaster checks that the three programs are present, installs the
+   BoomerBlaster checks that the programs it needs are present, installs the
    listener page, fetches your own control page (Snapweb, a pinned release
    whose checksum it verifies), and writes its configuration. It answers
    with something like:
@@ -91,7 +92,7 @@ same dependencies and copies the command into `~/.local/bin`.
 
    If the Mac's own AirPlay Receiver is on, it occupies port 7000, which
    AirPlay needs, and `start` says so instead of starting. Turn it off in
-   System Settings → General → AirDrop & Handoff → AirPlay Receiver;
+   System Settings > General > AirDrop & Handoff > AirPlay Receiver;
    BoomerBlaster is the AirPlay receiver now. `boomerblaster stop` hands
    AirPlay back: it stops `nqptp`, so this Mac casts as normal again, and
    reminds you to turn the AirPlay Receiver back on.
@@ -119,10 +120,10 @@ The lock screen and keyboard media keys show the track but do not control it.
 
 Your own controls are at `/admin/` on the same address: Snapweb, Snapcast's
 control panel, where you can see every listener, set the stream, and rename or
-remove a client. Keep that address to yourself.
+remove a client. Anyone on the network who has that address can do the same,
+so keep it to yourself.
 
-Laptops are the best listeners. Phones work too while the page is in the
-foreground; iOS stops the audio when the screen locks.
+Laptops are the best listeners. Phones work too, also with the screen locked.
 
 ## Play something
 
@@ -197,11 +198,15 @@ Recording**; allow it.
 BoomerBlaster writes and reads these files, and nothing else:
 
 - `~/.config/boomerblaster/config.json`, the settings below
-- `~/.config/boomerblaster/snapserver.conf`, generated from them
-- `~/Library/Application Support/boomerblaster/www/`, the listener page, with
-  the admin page under `admin/`; the server's own state sits beside it
+- `~/.config/boomerblaster/snapserver.conf`, generated from them, and
+  beside it `capture.sh` and `capture-app` for the System source
+- `~/Library/Application Support/boomerblaster/`: `www/`, the listener page
+  (with the admin page under `admin/` and the current cover art), the
+  server's own state, and the capture helper when `init` built it
 - `~/Library/LaunchAgents/dk.denfrievilje.boomerblaster.plist`, while running
 - `~/Library/Logs/boomerblaster.log`, the server log
+
+Homebrew keeps nqptp's own LaunchAgent and log while it runs.
 
 `config.json` keys:
 
@@ -210,7 +215,7 @@ BoomerBlaster writes and reads these files, and nothing else:
 | `name` | `"BoomerBlaster"` | what phones see in the AirPlay and Spotify Connect lists |
 | `http_port` | `1780` | the listener page's port |
 | `stream_port`, `control_port` | `1704`, `1705` | Snapcast's audio and control ports |
-| `codec` | `"flac"` | `pcm`, `flac` or `opus`; pcm is the most robust, opus the lightest |
+| `codec` | `"flac"` | `pcm`, `flac` or `opus`; pcm needs the least processing, opus the least bandwidth |
 | `buffer_ms` | `2000` | time between stamping a chunk and playing it; raise on poor Wi-Fi, lower for snappier controls |
 | `airplay` | `true` | offer an AirPlay receiver |
 | `airplay_version` | `2` | `2`: AirPlay 2 (needs nqptp); `1`: classic, no PTP clock, so this Mac can cast too. `cast on/off` flips it |
@@ -268,12 +273,12 @@ open-source programs that do the work:
 - [shairport-sync](https://github.com/mikebrady/shairport-sync) receives
   AirPlay (2 and classic) and hands over audio and metadata.
 - [nqptp](https://github.com/mikebrady/nqptp) keeps the PTP clock AirPlay 2
-  senders cast against. It runs as a Homebrew service, outside
-  BoomerBlaster's supervision, because it must own UDP ports 319 and 320
-  for as long as anything AirPlays.
+  senders cast against. It runs as a Homebrew service that `start` starts
+  and `stop` stops, since it owns UDP ports 319 and 320, which the Mac's
+  own AirPlay sender needs too.
 - [librespot](https://github.com/librespot-org/librespot) receives Spotify
   Connect.
-- [snapserver](https://github.com/snapcast/snapcast) takes both, stamps every
+- [snapserver](https://github.com/snapcast/snapcast) takes every source, stamps every
   20 ms of audio against one clock and streams it to listeners.
 - The listener page in `listener/` plays the stream in sync and shows the
   track. Its audio engine and control client are Snapweb's own modules,
@@ -311,6 +316,10 @@ and only because the virtual device may run at another rate.
 
 ## Limits
 
+- **The DJ's pages have no password.** The admin page, Snapcast's control
+  port and the app picker answer anyone on the same network. On an office
+  network that is the usual trust; on a shared or public one, run it
+  elsewhere.
 - **Chromecast is not a source.** Commercial apps check that a Cast receiver
   holds a certificate issued by Google, and no open-source receiver can get
   one. Spotify Connect covers the usual reason for wanting it. If you need a

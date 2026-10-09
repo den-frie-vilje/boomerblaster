@@ -390,7 +390,8 @@ def find_capture_helper():
     here = os.path.dirname(os.path.realpath(__file__))
     home = os.path.expanduser("~")
     for candidate in (
-        os.path.join(here, "..", "libexec", "boomerblaster", CAPTURE_HELPER),
+        # Homebrew: share/boomerblaster/plug-ins beside libexec/boomerblaster
+        os.path.join(here, "..", "..", "..", "libexec", "boomerblaster", CAPTURE_HELPER),
         os.path.join(here, "..", "capture", CAPTURE_HELPER),
         os.path.join(home, "Library", "Application Support", "boomerblaster", CAPTURE_HELPER),
     ):

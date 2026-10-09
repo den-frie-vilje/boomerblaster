@@ -92,7 +92,7 @@ import urllib.request
 import zipfile
 from urllib.parse import quote
 
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 LABEL = "dk.denfrievilje.boomerblaster"
 
 # AirPlay's RTSP port. An AirPlay-2 shairport-sync serves both AirPlay 2
@@ -1038,6 +1038,9 @@ def cmd_start(args):
         fail(problem)
     if nqptp_problem(cfg):
         nqptp_start()
+    # The generated files carry the command's versioned path, which a brew
+    # upgrade deletes; rewriting them here keeps a restart after an upgrade working.
+    write_conf(cfg)
     write_plist()
     res = subprocess.run(
         ["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST_PATH],
