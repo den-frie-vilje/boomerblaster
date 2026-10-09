@@ -10,8 +10,9 @@ boomerblaster is the wiring between three open-source programs that do the
 actual work, all installed by Homebrew:
 
   shairport-sync   an AirPlay 2 receiver; iPhones and Macs cast to it
-  nqptp            the clock AirPlay 2 casts against; a Homebrew service,
-                   started once with `brew services start nqptp`
+  nqptp            the clock AirPlay 2 casts against; a Homebrew service
+                   that `start` starts and `stop` stops, since it holds the
+                   ports this Mac's own AirPlay sender needs
   librespot        a Spotify Connect receiver; any phone casts to it
   snapserver       takes the audio from both, stamps every chunk against
                    one clock, and streams it to listeners who play each
@@ -33,7 +34,9 @@ Commands:
            --no-spotify, --codec pcm|flac|opus, --port N.
   start    run the server in the background and keep it running, also
            after you log in again, via a LaunchAgent, until `stop`.
-  stop     stop the server and remove the LaunchAgent.
+           Starts nqptp when the receiver is AirPlay 2.
+  stop     stop the server, remove the LaunchAgent and stop nqptp, so
+           this Mac casts AirPlay as normal again.
   restart  stop, then start; run after `set`.
   run      run the server in the foreground. What `start` and
            `brew services start boomerblaster` run for you.
@@ -79,6 +82,7 @@ import json
 import os
 import plistlib
 import shutil
+import signal
 import socket
 import ssl
 import subprocess
@@ -353,8 +357,8 @@ def nqptp_problem(cfg):
         return None
     return (
         "shairport-sync is built for AirPlay 2, which needs the nqptp timing daemon,\n"
-        "and nqptp is not running. Start it once; it stays on, also after login:\n"
-        "  brew services start nqptp\n"
+        "and nqptp is not running. boomerblaster start starts it; under another\n"
+        "supervisor, start it yourself: brew services start nqptp\n"
         "(not installed? brew install den-frie-vilje/tap/nqptp first;\n"
         " paused it to cast from this Mac? boomerblaster cast off)"
     )
@@ -376,6 +380,38 @@ def write_conf(cfg):
         fh.write(render_conf(cfg, paths))
 
 
+def nqptp_start():
+    """Start nqptp as a Homebrew service and wait until it is up."""
+    brew = which("brew")
+    if not brew:
+        fail("Homebrew is needed to start and stop nqptp")
+    holders = ptp_ports_held_by()
+    if holders:
+        fail(f"the PTP ports AirPlay 2 needs are in use by {', '.join(sorted(holders))};\n"
+             "stop casting from this Mac first, or receive classic AirPlay: boomerblaster cast on")
+    res = subprocess.run([brew, "services", "start", "nqptp"], capture_output=True, text=True)
+    if res.returncode != 0:
+        fail("brew services start nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
+    for _ in range(20):
+        if nqptp_running():
+            break
+        time.sleep(0.25)
+    else:
+        fail("nqptp did not come up; see brew services info nqptp")
+    say("nqptp running")
+
+
+def nqptp_stop():
+    """Stop nqptp, which gives this Mac's own AirPlay sender its PTP ports back."""
+    brew = which("brew")
+    if not brew:
+        fail("Homebrew is needed to start and stop nqptp")
+    res = subprocess.run([brew, "services", "stop", "nqptp"], capture_output=True, text=True)
+    if res.returncode != 0:
+        fail("brew services stop nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
+    say("nqptp stopped")
+
+
 def cmd_cast(args):
     """Flip the Mac between receiving AirPlay 2 and casting AirPlay itself.
 
@@ -394,7 +430,9 @@ def cmd_cast(args):
     running = nqptp_running()
     classic = airplay_classic(cfg)
     if not args:
-        if classic and not running:
+        if not running and not launchd_loaded():
+            say("the server is stopped and so is nqptp; this Mac can cast to other speakers")
+        elif classic and not running:
             say("cast on: the receiver is classic AirPlay, nqptp is stopped; this Mac can cast to other speakers")
         elif not classic and running:
             say("cast off: the receiver is AirPlay 2 (nqptp running); this Mac cannot cast to other speakers")
@@ -413,10 +451,7 @@ def cmd_cast(args):
             say("already set to cast")
             return
         if running:
-            res = subprocess.run([brew, "services", "stop", "nqptp"], capture_output=True, text=True)
-            if res.returncode != 0:
-                fail("brew services stop nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
-            say("nqptp stopped")
+            nqptp_stop()
         if not classic:
             cfg["airplay_version"] = 1
             save_config(cfg)
@@ -430,32 +465,20 @@ def cmd_cast(args):
             f"\"{cfg['name']}\" (classic AirPlay; AirPlay-2-only apps will not list it).")
         say("Back to AirPlay 2: boomerblaster cast off")
     else:
-        if not classic and running:
-            say("already receiving AirPlay 2")
+        loaded = launchd_loaded()
+        if not classic and (running or not loaded):
+            say("already set to receive AirPlay 2")
             return
-        if not running:
-            holders = ptp_ports_held_by()
-            if holders:
-                fail(f"the PTP ports are in use by {', '.join(sorted(holders))}; stop casting from this Mac first, then run cast off again")
-            res = subprocess.run([brew, "services", "start", "nqptp"], capture_output=True, text=True)
-            if res.returncode != 0:
-                fail("brew services start nqptp failed: " + (res.stderr.strip() or res.stdout.strip()))
-            for _ in range(20):
-                if nqptp_running():
-                    break
-                time.sleep(0.25)
-            else:
-                fail("nqptp did not come up; see brew services info nqptp")
-            say("nqptp running")
         if classic:
             cfg["airplay_version"] = 2
             save_config(cfg)
             write_conf(cfg)
             say("receiver set to AirPlay 2")
-            if launchd_loaded():
-                cmd_restart([])
-            else:
-                say("run boomerblaster restart (or start) to apply")
+        # nqptp runs only alongside the server; start brings it up.
+        if loaded:
+            cmd_restart([])
+        else:
+            say("run boomerblaster start to apply")
         say(f"Phones can AirPlay 2 to \"{cfg['name']}\" again. This Mac cannot cast to other speakers until boomerblaster cast on.")
 
 
@@ -1010,9 +1033,11 @@ def cmd_start(args):
     if launchd_loaded():
         say("already running (LaunchAgent loaded); use restart to apply changes")
         return
-    problem = airplay_port_problem(cfg) or nqptp_problem(cfg)
+    problem = airplay_port_problem(cfg)
     if problem:
         fail(problem)
+    if nqptp_problem(cfg):
+        nqptp_start()
     write_plist()
     res = subprocess.run(
         ["launchctl", "bootstrap", f"gui/{os.getuid()}", PLIST_PATH],
@@ -1031,7 +1056,7 @@ def cmd_start(args):
     print_urls(cfg)
 
 
-def cmd_stop(_args):
+def cmd_stop(_args, restarting=False):
     if not DARWIN:
         fail("stop is macOS-only; signal the `boomerblaster run` process you started")
     if launchd_loaded():
@@ -1042,10 +1067,39 @@ def cmd_stop(_args):
     if os.path.exists(PLIST_PATH):
         os.remove(PLIST_PATH)
         say("LaunchAgent removed")
+    # A snapserver that died without a stop leaves its receivers orphaned
+    # under launchd, still holding AirPlay's port and the device names.
+    for prog in ("shairport-sync", "librespot"):
+        for pid in orphans(prog, load_config()["name"]):
+            os.kill(pid, signal.SIGTERM)
+            say(f"stopped a leftover {prog} (pid {pid})")
+    # nqptp holds the PTP ports this Mac's own AirPlay sender needs, so it
+    # runs only alongside the server.
+    if nqptp_running():
+        nqptp_stop()
+    if not restarting and load_config()["airplay"]:
+        say("This Mac casts AirPlay as normal again. If you turned off its own AirPlay Receiver\n"
+            "for BoomerBlaster, turn it back on in System Settings > General > AirDrop & Handoff.")
+
+
+def orphans(prog, name):
+    """PIDs of this receiver's processes whose server is gone (parent launchd)."""
+    # comm is cut at 16 characters, so the executable is read from args.
+    res = subprocess.run(["/bin/ps", "-axww", "-o", "pid=,ppid=,args="],
+                         capture_output=True, text=True, errors="replace")
+    pids = []
+    for line in res.stdout.splitlines():
+        parts = line.split(None, 3)
+        if len(parts) < 4:
+            continue
+        pid, ppid, exe, rest = parts
+        if ppid == "1" and os.path.basename(exe) == prog and name in rest:
+            pids.append(int(pid))
+    return pids
 
 
 def cmd_restart(args):
-    cmd_stop([])
+    cmd_stop([], restarting=True)
     time.sleep(0.5)
     cmd_start(args)
 
@@ -1191,8 +1245,11 @@ def cmd_doctor(_args):
             say("  note  the receiver is in classic AirPlay mode (cast on): AirPlay-2-only apps")
             say("        will not list it, and this Mac can cast to other speakers. boomerblaster cast off")
         elif sps and airplay2_build(sps):
-            check(nqptp_running(), "nqptp is running (the clock AirPlay 2 casts against)",
-                  "nqptp is not running; AirPlay 2 needs it: brew services start nqptp (or boomerblaster cast off)")
+            if DARWIN and not launchd_loaded() and not nqptp_running():
+                say("  note  nqptp (the clock AirPlay 2 casts against) starts and stops with the server")
+            else:
+                check(nqptp_running(), "nqptp is running (the clock AirPlay 2 casts against)",
+                      "nqptp is not running; AirPlay 2 needs it: boomerblaster restart")
         elif sps:
             say("  note  this shairport-sync is a classic-AirPlay build; AirPlay-2-only senders")
             say("        will not list it. brew install den-frie-vilje/tap/shairport-sync and nqptp")

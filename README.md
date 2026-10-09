@@ -45,12 +45,8 @@ brew install den-frie-vilje/tap/boomerblaster
 This also installs the programs BoomerBlaster drives: `snapcast`,
 `shairport-sync` (the tap's build, with AirPlay 2), `nqptp` and `librespot`.
 
-AirPlay 2 casts against a clock, and `nqptp` is that clock. Start it once;
-it keeps running, also after login, as you — no sudo:
-
-```sh
-brew services start nqptp
-```
+AirPlay 2 casts against a clock, and `nqptp` is that clock. BoomerBlaster
+starts it with the server and stops it with the server, as you, no sudo.
 
 Or from a clone of this repository, run `./install.sh`, which checks the
 same dependencies and copies the command into `~/.local/bin`.
@@ -96,8 +92,9 @@ same dependencies and copies the command into `~/.local/bin`.
    If the Mac's own AirPlay Receiver is on, it occupies port 7000, which
    AirPlay needs, and `start` says so instead of starting. Turn it off in
    System Settings → General → AirDrop & Handoff → AirPlay Receiver;
-   BoomerBlaster is the AirPlay receiver now. If `nqptp` is not running,
-   `start` says that too, with the command that fixes it.
+   BoomerBlaster is the AirPlay receiver now. `boomerblaster stop` hands
+   AirPlay back: it stops `nqptp`, so this Mac casts as normal again, and
+   reminds you to turn the AirPlay Receiver back on.
 
 3. Get the address to send round:
 
@@ -322,9 +319,9 @@ and only because the virtual device may run at another rate.
 - **AirPlay 2 needs its clock.** The tap's shairport-sync is built for
   AirPlay 2 (it answers classic AirPlay too, on the same port, 7000), so
   AirPlay-2-only apps see it. The timing daemon it casts against, `nqptp`,
-  is the one thing BoomerBlaster does not supervise: start it once with
-  `brew services start nqptp` and forget it. `doctor` and `start` tell you
-  if it is missing. The build is pinned to shairport-sync's development
+  runs as a Homebrew service that `start` starts and `stop` stops; under
+  `brew services start boomerblaster`, start it yourself with
+  `brew services start nqptp`. The build is pinned to shairport-sync's development
   branch until AirPlay-2-on-macOS ships in a release. The same two ports
   are what macOS's own AirPlay sender uses, so while the receiver runs as
   AirPlay 2, this Mac cannot cast to other AirPlay 2 speakers.
