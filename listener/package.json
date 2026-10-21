@@ -5,6 +5,9 @@
   "description": "The BoomerBlaster listener page: artwork, your own volume, nothing else.",
   "license": "GPL-3.0-or-later",
   "type": "module",
+  "engines": {
+    "node": "^26"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
